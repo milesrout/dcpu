@@ -20,7 +20,7 @@ struct device {
 
 struct hardware {
 	struct hardware *next;
-	struct device *device;
+	struct device   *device;
 };
 
 struct dcpu {
@@ -45,11 +45,12 @@ struct device *nth_device(struct dcpu *dcpu, u16 n)
 	return hw->device;
 }
 
-#define DCPU_INIT {.registers={0}, .ram={0}, .pc=0, .sp=0, .ex=0, .ia=0, .cycles=0}
+#define DCPU_INIT {.registers={0}, .ram={0}, .pc=0, .sp=0, .ex=0, .ia=0,\
+	           .cycles=0, .queue_interrupts=true, .hw=NULL}
 
-#define NEXTWORD dcpu->ram[dcpu->pc++]
-static u16 *get_b(struct dcpu *dcpu, u16 b)
+static u16 *decode_b(struct dcpu *dcpu, u16 b)
 {
+	#define NEXTWORD dcpu->ram[dcpu->pc++]
 	switch (b) {
 		case 0x00: case 0x01: case 0x02: case 0x03:
 		case 0x04: case 0x05: case 0x06: case 0x07:
@@ -81,16 +82,16 @@ static u16 *get_b(struct dcpu *dcpu, u16 b)
 			dcpu->cycles++;
 			return &NEXTWORD;
 		default:
-			THROW(GET_B_FAILURE, "out of range");
+			throw("decode_b", "out of range");
 	}
+	#undef NEXTWORD
 }
-#undef NEXTWORD
 
-static u16  get_a(struct dcpu *dcpu, u16 a)
+static u16 decode_a(struct dcpu *dcpu, u16 a)
 {
-	if (a >= 0x40) THROW(GET_A_FAILURE, "too large");
+	if (a >= 0x40) throw("decode_a", "too large");
 	if (a == 0x18) return dcpu->ram[dcpu->sp++];
-	if (a < 0x20) return *get_b(dcpu, a);
+	if (a < 0x20) return *decode_b(dcpu, a);
 
 	// 0x20-0x3f | literal value 0xffff-0x1e (-1..30) (literal) (only for a)
 	return a - 0x21;
@@ -98,30 +99,33 @@ static u16  get_a(struct dcpu *dcpu, u16 a)
 
 static void interrupt(struct dcpu *dcpu, u16 message)
 {
-
+	throw("interrupt", "not yet implemented");
 }
 
 static void cycle(struct dcpu *dcpu)
 {
 	u16 instruction = dcpu->ram[dcpu->pc++];
-	u16 o = instruction & 0b11111;
-	u16 b = (instruction & 0b1111100000) >> 5;
-	u16 a = (instruction & 0b1111110000000000) >> 10;
-	printf("a=0x%02x b=0x%02x o=0x%02x\n", a, b, o);
+	u16 opcode = instruction & 0b11111;
+	u16 enc_b = (instruction & 0b1111100000) >> 5;
+	u16 enc_a = (instruction & 0b1111110000000000) >> 10;
 
-	if (o == 0x00) switch (b) {
+	printf("a=0x%02x b=0x%02x o=0x%02x\n", enc_a, enc_b, opcode);
+
+	if (opcode == 0x00) switch (enc_b) {
+		u16   a = decode_a(dcpu, enc_a);
+		u16 *pa = decode_b(dcpu, enc_a);
 		case 0x01:
 			dcpu->ram[--dcpu->sp] = dcpu->pc;
-			dcpu->pc = get_a(dcpu, a);
+			dcpu->pc = a;
 			break;
 		case 0x08:
-			interrupt(dcpu, get_a(dcpu, a));
+			interrupt(dcpu, a);
 			break;
 		case 0x09:
-			*get_b(dcpu, a) = dcpu->ia;
+			*decode_b(dcpu, enc_a) = dcpu->ia;
 			break;
 		case 0x0a:
-			dcpu->ia = get_a(dcpu, a);
+			dcpu->ia = a;
 			break;
 		case 0x0b:
 			dcpu->queue_interrupts = false;
@@ -129,7 +133,7 @@ static void cycle(struct dcpu *dcpu)
 			dcpu->pc = dcpu->ram[dcpu->sp++];
 			break;
 		case 0x0c:
-			dcpu->queue_interrupts = (get_a(dcpu, a) != 0);
+			dcpu->queue_interrupts = (a != 0);
 			break;
 		case 0x10:
 		{
@@ -139,12 +143,12 @@ static void cycle(struct dcpu *dcpu)
 				count++;
 				hw = hw->next;
 			}
-			*get_b(dcpu, a) = count;
+			*pa = count;
 			break;
 		}
 		case 0x11:
 		{
-			struct device *device = nth_device(dcpu, get_a(dcpu, a));
+			struct device *device = nth_device(dcpu, a);
 			if (device != NULL) {
 				dcpu->registers[0] = device->id & 0x0f;
 				dcpu->registers[1] = (device->id & 0xf0) >> 16;
@@ -156,31 +160,75 @@ static void cycle(struct dcpu *dcpu)
 		}
 		case 0x12:
 		{
-			struct device *device = nth_device(dcpu, get_a(dcpu, a));
+			struct device *device = nth_device(dcpu, a);
 			if (device != NULL) {
 				device->interrupt(device, dcpu);
 			}
 			break;
 		}
-		default: THROW(OPCODE_FAILURE, "out of range");
+		default: throw("opcode", "out of range");
 	} else {
-		u16 *bval = get_b(dcpu, b);
-		u16 aval = get_a(dcpu, a);
-		switch (o) {
-			case 0x01:
-				*bval = aval;
-				break;
-			case 0x02:
-				dcpu->ex = __builtin_add_overflow(*bval, aval, bval) ? 0x0001 : 0;
-				break;
-			case 0x03:
-				dcpu->ex = __builtin_sub_overflow(*bval, aval, bval) ? 0xffff : 0;
-				break;
-			case 0x04:
-				dcpu->ex = (u16)((*bval * (u32)aval) >> 16);
-				*bval = *bval * aval;
-				break;
-			case 0x05:
+		u16  a = decode_a(dcpu, enc_a);
+		u16 *b = decode_b(dcpu, enc_b);
+		if (opcode == 0x01) {
+			*b = a;
+		} else if (opcode == 0x02) {
+			u32 c    = (u32)a + (u32)*b;
+			dcpu->ex = c >> 16;
+			*b       = c;
+		} else if (opcode == 0x03) {
+			u32 c    = (u32)*b - (u32)a;
+			dcpu->ex = c >> 16;
+			*b       = c;
+		} else if (opcode == 0x04) {
+			u32 c    = (u32)*b * (u32)a;
+			dcpu->ex = c >> 16;
+			*b       = c;
+		} else if (opcode == 0x05) {
+			s32 c    = (s32)(s16)*b * (s32)(s16)a;
+			dcpu->ex = (u32)c >> 16;
+			*b       = (u32)c;
+		} else if (opcode == 0x06) {
+			if (a == 0) {
+				dcpu->ex = 0;
+				*b       = 0;
+			} else {
+				u32 c = (u32)*b / (u32)a;
+				dcpu->ex = c >> 16;
+				*b       = c;
+			}
+		} else if (opcode == 0x07) {
+			if (a == 0) {
+				dcpu->ex = 0;
+				*b       = 0;
+			} else {
+				s32 c = (s32)(s16)*b / (s32)(s16)a;
+				dcpu->ex = (u32)c >> 16;
+				*b       = (u32)c;
+			}
+		} else if (opcode == 0x08) {
+			if (a == 0)
+				*b = 0;
+			else
+				*b = *b % a;
+		} else if (opcode == 0x09) {
+			if (a == 0) {
+				*b = 0;
+			} else {
+				u16 c = *b % a;
+				*b = (s16)*b < 0 ? -(s16)c : c;
+			}
+		} else if (opcode == 0x0a) {
+			*b = *b & a;
+		} else if (opcode == 0x0b) {
+			*b = *b | a;
+		} else if (opcode == 0x0c) {
+			*b = *b ^ a;
+		} else if (opcode == 0x0d) {
+
+		} else if (opcode == 0x0e) {
+
+		} else if (opcode == 0x0f) {
 
 		}
 	}
