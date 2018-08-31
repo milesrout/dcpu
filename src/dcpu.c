@@ -18,21 +18,19 @@
 void getchar_interrupt(struct device *device, struct dcpu *dcpu)
 {
 	(void)dcpu;
-	fprintf(stderr, "#id=0x%08x version=0x%04x man=0x%08x#",
-		device->id, device->version, device->manufacturer);
-	fprintf(stderr,
-	       "a=0x%04x b=0x%04x c=0x%04x x=0x%04x "
-	       "y=0x%04x z=0x%04x i=0x%04x j=0x%04x | "
-	       "pc=0x%04x sp=0x%04x | cyc=%d skip=%d",
-	       dcpu->registers[0], dcpu->registers[1],
-	       dcpu->registers[2], dcpu->registers[3],
-	       dcpu->registers[4], dcpu->registers[5],
-	       dcpu->registers[6], dcpu->registers[7],
-	       dcpu->pc, dcpu->sp, dcpu->cycles, dcpu->skipping);
-	getchar();
+//	fprintf(stderr, "#id=0x%08x version=0x%04x man=0x%08x#\n",
+//		device->id, device->version, device->manufacturer);
+//	fprintf(stderr,
+//	       "a=0x%04x b=0x%04x c=0x%04x x=0x%04x "
+//	       "y=0x%04x z=0x%04x i=0x%04x j=0x%04x | "
+//	       "pc=0x%04x sp=0x%04x | cyc=%d skip=%d",
+//	       dcpu->registers[0], dcpu->registers[1],
+//	       dcpu->registers[2], dcpu->registers[3],
+//	       dcpu->registers[4], dcpu->registers[5],
+//	       dcpu->registers[6], dcpu->registers[7],
+//	       dcpu->pc, dcpu->sp, dcpu->cycles, dcpu->skipping);
+//	getchar();
 }
-
-#define get_member_of(type, value, member) (((type*)((value)->data))->member)
 
 void noop_cycle(struct device *device, struct dcpu *dcpu)
 {
@@ -385,17 +383,24 @@ static void cycle(struct dcpu *dcpu)
 }
 
 u16 diag[] = {
-#include "../diagnostics.txt"
+#include "../diag.txt"
 };
 
 int main()
 {
 	struct dcpu dcpu = DCPU_INIT;
+	
+	/* the program I am currently testing requires that the monitor is
+	 * treated as a special device. essentially it requires that it's
+	 * automatically mapped to 0x8000 at the beginning of execution.
+	 */
+	dcpu.emulation_flags = DCPU_EC_TREAT_MONITOR_AS_SPECIAL_DEVICE;
+
 	/* dcpu.ram[0] = 0x7c01; */
 	memcpy(dcpu.ram, diag, sizeof diag);
 
 	dcpu.hw = emalloc(sizeof(struct hardware));
-	dcpu.hw->device = make_lem1802();
+	dcpu.hw->device = make_lem1802(&dcpu);
 
 	dcpu.hw->next = emalloc(sizeof(struct hardware));
 	dcpu.hw->next->device = emalloc(sizeof(struct device));

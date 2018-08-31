@@ -1,4 +1,3 @@
-#define _DEFAULT_SOURCE
 #include <arpa/inet.h>
 #include <unistd.h>
 #include <setjmp.h>
@@ -7,6 +6,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <errno.h>
+#include <SDL.h>
 
 #include "types.h"
 #include "utils.h"
@@ -14,11 +14,14 @@
 #include "dcpu.h"
 #include "lem1802.h"
 
+static SDL_Window *_debug_window;
+
 struct device_lem1802 {
 	u16 vramoff;
 	u16 fontoff;
 	u16 paletteoff;
 	u8  bordercol;
+	SDL_Window *window;
 };
 
 enum lem1802_command {
@@ -26,6 +29,41 @@ enum lem1802_command {
 	MEM_MAP_FONT,
 	MEM_MAP_PALETTE,
 	SET_BORDER_COLOUR,
+};
+
+const u16 lem1802_zardoz_font[256] = {
+        0x000F, 0x0808, 0x080F, 0x0808, 0x08F8, 0x0808, 0x00FF, 0x0808,
+        0x0808, 0x0808, 0x08FF, 0x0808, 0x00FF, 0x1414, 0xFF00, 0xFF08,
+        0x1F10, 0x1714, 0xFC04, 0xF414, 0x1710, 0x1714, 0xF404, 0xF414,
+        0xFF00, 0xF714, 0x1414, 0x1414, 0xF700, 0xF714, 0x1417, 0x1414,
+        0x0F08, 0x0F08, 0x14F4, 0x1414, 0xF808, 0xF808, 0x0F08, 0x0F08,
+        0x001F, 0x1414, 0x00FC, 0x1414, 0xF808, 0xF808, 0xFF08, 0xFF08,
+        0x14FF, 0x1414, 0x080F, 0x0000, 0x00F8, 0x0808, 0xFFFF, 0xFFFF,
+        0xF0F0, 0xF0F0, 0xFFFF, 0x0000, 0x0000, 0xFFFF, 0x0F0F, 0x0F0F,
+        0x0000, 0x0000, 0x005f, 0x0000, 0x0300, 0x0300, 0x3e14, 0x3e00,
+        0x266b, 0x3200, 0x611c, 0x4300, 0x3629, 0x7650, 0x0002, 0x0100,
+        0x1c22, 0x4100, 0x4122, 0x1c00, 0x1408, 0x1400, 0x081c, 0x0800,
+        0x4020, 0x0000, 0x0808, 0x0800, 0x0040, 0x0000, 0x601c, 0x0300,
+        0x3e49, 0x3e00, 0x427f, 0x4000, 0x6259, 0x4600, 0x2249, 0x3600,
+        0x0f08, 0x7f00, 0x2745, 0x3900, 0x3e49, 0x3200, 0x6119, 0x0700,
+        0x3649, 0x3600, 0x2649, 0x3e00, 0x0024, 0x0000, 0x4024, 0x0000,
+        0x0814, 0x2200, 0x1414, 0x1400, 0x2214, 0x0800, 0x0259, 0x0600,
+        0x3e59, 0x5e00, 0x7e09, 0x7e00, 0x7f49, 0x3600, 0x3e41, 0x2200,
+        0x7f41, 0x3e00, 0x7f49, 0x4100, 0x7f09, 0x0100, 0x3e41, 0x7a00,
+        0x7f08, 0x7f00, 0x417f, 0x4100, 0x2040, 0x3f00, 0x7f08, 0x7700,
+        0x7f40, 0x4000, 0x7f06, 0x7f00, 0x7f01, 0x7e00, 0x3e41, 0x3e00,
+        0x7f09, 0x0600, 0x3e61, 0x7e00, 0x7f09, 0x7600, 0x2649, 0x3200,
+        0x017f, 0x0100, 0x3f40, 0x7f00, 0x1f60, 0x1f00, 0x7f30, 0x7f00,
+        0x7708, 0x7700, 0x0778, 0x0700, 0x7149, 0x4700, 0x007f, 0x4100,
+        0x031c, 0x6000, 0x417f, 0x0000, 0x0201, 0x0200, 0x8080, 0x8000,
+        0x0001, 0x0200, 0x2454, 0x7800, 0x7f44, 0x3800, 0x3844, 0x2800,
+        0x3844, 0x7f00, 0x3854, 0x5800, 0x087e, 0x0900, 0x4854, 0x3c00,
+        0x7f04, 0x7800, 0x047d, 0x0000, 0x2040, 0x3d00, 0x7f10, 0x6c00,
+        0x017f, 0x0000, 0x7c18, 0x7c00, 0x7c04, 0x7800, 0x3844, 0x3800,
+        0x7c14, 0x0800, 0x0814, 0x7c00, 0x7c04, 0x0800, 0x4854, 0x2400,
+        0x043e, 0x4400, 0x3c40, 0x7c00, 0x1c60, 0x1c00, 0x7c30, 0x7c00,
+        0x6c10, 0x6c00, 0x4c50, 0x3c00, 0x6454, 0x4c00, 0x0836, 0x4100,
+	0x0077, 0x0000, 0x4136, 0x0800, 0x0201, 0x0201, 0x0205, 0x0200,
 };
 
 const u16 lem1802_default_font[256] = {
@@ -69,7 +107,7 @@ const u16 lem1802_default_palette[] = {
 };
 
 struct farbfeld_pixel {
-	u16 r, g, b, a;
+	u8 r, g, b;
 };
 
 struct farbfeld_data {
@@ -84,11 +122,12 @@ struct farbfeld_data {
 #define LEM1802_FF_ROWS 12
 #define LEM1802_FF_COLS 32
 #define LEM1802_FF_BORDERWIDTH 1
-#define LEM1802_FF_PIXWIDTH (LEM1802_FF_CELLWIDTH * LEM1802_FF_COLS + 2)
-#define LEM1802_FF_PIXHEIGHT (LEM1802_FF_CELLHEIGHT * LEM1802_FF_ROWS + 2)
+#define LEM1802_FF_PIXWIDTH (LEM1802_FF_CELLWIDTH * LEM1802_FF_COLS + 2 * LEM1802_FF_BORDERWIDTH)
+#define LEM1802_FF_PIXHEIGHT (LEM1802_FF_CELLHEIGHT * LEM1802_FF_ROWS + 2 * LEM1802_FF_BORDERWIDTH)
 #define LEM1802_FF_PIXSIZE (sizeof(struct farbfeld_pixel) * LEM1802_FF_PIXWIDTH * LEM1802_FF_PIXHEIGHT)
 #define LEM1802_FF_SIZE (sizeof(struct farbfeld_data) + LEM1802_FF_PIXSIZE)
 #define LEM1802_FF_INIT (struct farbfeld_data){ .width=LEM1802_FF_PIXWIDTH, .height=LEM1802_FF_PIXHEIGHT }
+#define LEM1802_SCALE_FACTOR 4
 
 void lem1802_write(const char *filename, struct farbfeld_data *ffdat)
 {
@@ -103,41 +142,45 @@ void lem1802_write(const char *filename, struct farbfeld_data *ffdat)
 	fwrite(&height, sizeof(u32), 1, f);
 
 	for (i = 0; i < ffdat->width * ffdat->height; i++) {
-		memcpy(vals, &ffdat->pixels[i], sizeof(struct farbfeld_pixel));
-		vals[0] = htons(vals[0]);
-		vals[1] = htons(vals[1]);
-		vals[2] = htons(vals[2]);
-		vals[3] = htons(vals[3]);
+		vals[0] = htons(ffdat->pixels[i].r);
+		vals[1] = htons(ffdat->pixels[i].g);
+		vals[2] = htons(ffdat->pixels[i].b);
+		vals[3] = -1;
 		fwrite(&vals, sizeof(u16), 4, f);
 	}
-
-	/* fprintf(stderr, "%ld\n", ftell(f)); */
 
 	fclose(f);
 }
 
-#define PIXEL(i, j) pixels[i * LEM1802_FF_PIXWIDTH + j]
+#define EXTEND_TO_BYTE(x) ((((x) & 8) << 4) | (((x) & 8) << 3) | \
+	                   (((x) & 4) << 3) | (((x) & 4) << 2) | \
+	                   (((x) & 2) << 2) | (((x) & 2) << 1) | \
+	                   (((x) & 1) << 1) | (((x) & 1) << 0))
+
+#define PIXEL(i, j) pixels[(i) * LEM1802_FF_PIXWIDTH + (j)]
 #define COLOUR(x) (struct farbfeld_pixel){\
-	.r = (palette[x & 0xf] >> 8) & 0xf,\
-	.g = (palette[x & 0xf] >> 4) & 0xf,\
-	.b = palette[x & 0xf] & 0xf,\
-	.a = 0xffff}
+	.r = EXTEND_TO_BYTE((palette[(x) & 0xf] >> 8) & 0xf),\
+	.g = EXTEND_TO_BYTE((palette[(x) & 0xf] >> 4) & 0xf),\
+	.b = EXTEND_TO_BYTE((palette[(x) & 0xf] >> 0) & 0xf)}
+
+void lem1802_render(struct farbfeld_pixel pixels[], SDL_Window *window);
 
 void lem1802_draw_char(struct farbfeld_pixel pixels[], int i, int j, u16 vram, const u16 font[256], const u16 palette[16], int cycle)
-{
+{ 
 	int x, y;
-	u8 fg = (vram >> 12) & 0xf;
 	u8 bg = (vram >> 8) & 0xf;
+	u8 fg = (vram >> 12) & 0xf;
 	u8 blink = (vram >> 7) & 0x1;
 	u8 ch = vram & 0x7f;
-	u32 glyph = (font[ch * 2] << 16) + font[ch * 2 + 1];
+	u32 glyph = (font[ch * 2] << 16) | font[ch * 2 + 1];
 
 	for (x = 0; x < LEM1802_FF_CELLWIDTH; x++) {
 		for (y = 0; y < LEM1802_FF_CELLHEIGHT; y++) {
-			u16 a = i * LEM1802_FF_CELLHEIGHT + y + LEM1802_FF_BORDERWIDTH;
-			u16 b = j * LEM1802_FF_CELLWIDTH + x + LEM1802_FF_BORDERWIDTH;
+			u16 a = LEM1802_FF_BORDERWIDTH + i*LEM1802_FF_CELLHEIGHT + y;
+			u16 b = LEM1802_FF_BORDERWIDTH + j*LEM1802_FF_CELLWIDTH  + x;
+			u8  z = (3 - x) * LEM1802_FF_CELLHEIGHT + y;
 
-			if ((!blink || cycle) && ((glyph >> ((3 - x) * LEM1802_FF_CELLWIDTH + y)) & 0x1)) {
+			if ((!blink || cycle) && ((glyph >> z) & 0x1)) {
 				PIXEL(a, b) = COLOUR(fg);
 			} else {
 				PIXEL(a, b) = COLOUR(bg);
@@ -148,24 +191,96 @@ void lem1802_draw_char(struct farbfeld_pixel pixels[], int i, int j, u16 vram, c
 
 void lem1802_draw(struct farbfeld_pixel pixels[], const u16 vram[386], const u16 font[256], const u16 palette[16], u8 bordercol, int cycle)
 {
-	int i, j;
+	int i, j, k;
 
-	/* fprintf(stderr, "%d %d\n", LEM1802_FF_PIXWIDTH, LEM1802_FF_PIXHEIGHT); */
 	for (i = 0; i < LEM1802_FF_PIXHEIGHT; i++) {
-		PIXEL(i, 0) = COLOUR(bordercol);
-		PIXEL(i, LEM1802_FF_PIXHEIGHT - 1) = COLOUR(bordercol);
+		for (k = 0; k < LEM1802_FF_BORDERWIDTH; k++) {
+			PIXEL(i, k) = COLOUR(bordercol);
+			PIXEL(i, LEM1802_FF_PIXWIDTH - 1 - k) = COLOUR(bordercol);
+		}
 	}
 
-	for (j = 0; j < LEM1802_FF_PIXHEIGHT; j++) {
-		PIXEL(0, j) = COLOUR(bordercol);
-		PIXEL(LEM1802_FF_PIXWIDTH - 1, j) = COLOUR(bordercol);
+	for (j = 0; j < LEM1802_FF_PIXWIDTH; j++) {
+		for (k = 0; k < LEM1802_FF_BORDERWIDTH; k++) {
+			PIXEL(k, j) = COLOUR(bordercol);
+			PIXEL(LEM1802_FF_PIXHEIGHT - 1 - k, j) = COLOUR(bordercol);
+		}
 	}
 
 	for (i = 0; i < LEM1802_FF_ROWS; i++) {
 		for (j = 0; j < LEM1802_FF_COLS; j++) {
-			lem1802_draw_char(pixels, i, j, vram[i * LEM1802_FF_ROWS + j], font, palette, cycle);
+			lem1802_draw_char(pixels, i, j, vram[i * LEM1802_FF_COLS + j], font, palette, cycle);
 		}
 	}
+}
+
+void hex_dump(char *data, size_t length)
+{
+	unsigned i;
+	char buf[17];
+	char *pc = data;
+
+	for (i = 0; i < length; i++) {
+		if ((i % 16) == 0) {
+			if (i != 0)
+				fprintf(stderr, "  %s\n", buf);
+			fprintf(stderr, "  %04x ", i);
+		}
+
+		fprintf(stderr, "  %02x", (unsigned char)pc[i]);
+
+		buf[i % 16] = ((pc[i] < 0x20) || (pc[i] > 0x7e)) ? '.' : pc[i];
+		buf[i % 16 + 1] = '\0';
+	}
+
+	while ((i % 16) != 0) {
+		fprintf(stderr, "   ");
+		i++;
+	}
+
+	printf("  %s\n", buf);
+}
+
+void lem1802_render(struct farbfeld_pixel pixels[], SDL_Window *window)
+{
+	SDL_Surface *surface, *window_surface;
+
+	surface = SDL_CreateRGBSurfaceFrom((void*)pixels,
+		LEM1802_FF_PIXWIDTH,
+		LEM1802_FF_PIXHEIGHT,
+		3 * 8,
+		3 * LEM1802_FF_PIXWIDTH,
+		0x0000ff,
+		0x00ff00,
+		0xff0000,
+		0);
+
+	if (surface == NULL) {
+		fprintf(stderr, "Unable to create surface from pixels: %s\n",
+			SDL_GetError());
+		abort();
+	}
+
+	window_surface = SDL_GetWindowSurface(window);
+	if (window_surface == NULL) {
+		fprintf(stderr, "Unable to get surface from window: %s\n",
+			SDL_GetError());
+		abort();
+	}
+
+	if (SDL_BlitScaled(surface, NULL, window_surface, NULL)) {
+		fprintf(stderr, "Unable to blit from surface to window surface: %s\n",
+			SDL_GetError());
+		abort();
+	}
+
+	if (SDL_UpdateWindowSurface(window)) {
+		fprintf(stderr, "Unable to update window surface: %s\n",
+			SDL_GetError());
+		abort();
+	}
+
+	SDL_FreeSurface(surface);
 }
 
 #undef COLOUR
@@ -173,7 +288,7 @@ void lem1802_draw(struct farbfeld_pixel pixels[], const u16 vram[386], const u16
 
 void lem1802_cycle(struct device *device, struct dcpu *dcpu)
 {
-
+#define WINDOW get_member_of(struct device_lem1802, device, window)
 	/*
 	 * u16 vram[386];
 	 * u16 font[256];
@@ -186,36 +301,53 @@ void lem1802_cycle(struct device *device, struct dcpu *dcpu)
 	u16 paletteoff = get_member_of(struct device_lem1802, device, paletteoff);
 	u8  bordercol = get_member_of(struct device_lem1802, device, bordercol);
 	struct farbfeld_data *ffdat;
-	
+
 	ffdat = emalloc(LEM1802_FF_SIZE);
 	*ffdat = LEM1802_FF_INIT;
 	memset(ffdat->pixels, 0, LEM1802_FF_PIXSIZE);
 
-	if (vramoff == 0)
-		goto end;
-	else
+	if (vramoff == 0 && WINDOW != NULL) {
+		fprintf(stderr, "Screen turned off");
+		SDL_DestroyWindow(WINDOW);
+	}
+
+	if (vramoff != 0 && WINDOW == NULL) {
+		fprintf(stderr, "Screen turned on");
+		WINDOW = SDL_CreateWindow(
+				"LEM1802", 
+				SDL_WINDOWPOS_UNDEFINED, 
+				SDL_WINDOWPOS_UNDEFINED, 
+				LEM1802_SCALE_FACTOR * LEM1802_FF_PIXWIDTH, 
+				LEM1802_SCALE_FACTOR * LEM1802_FF_PIXHEIGHT, 
+				0);
+		if (WINDOW == NULL) {
+			fprintf(stderr, "Couldn't create window: %s\n", SDL_GetError());
+			abort();
+		}
+	}
+
+	if (vramoff != 0) {
 		vram = dcpu->ram + vramoff;
 
-	if (fontoff == 0)
-		font = lem1802_default_font;
-	else
-		font = dcpu->ram + fontoff;
+		if (fontoff == 0)
+			font = lem1802_default_font;
+		else
+			font = dcpu->ram + fontoff;
 
-	if (paletteoff == 0)
-		palette = lem1802_default_palette;
-	else
-		palette = dcpu->ram + paletteoff;
+		if (paletteoff == 0)
+			palette = lem1802_default_palette;
+		else
+			palette = dcpu->ram + paletteoff;
 
-	/* fprintf(stderr, "%p %p %p %ld %ld\n", ffdat, (char*)ffdat + sizeof *ffdat, ffdat->pixels, LEM1802_FF_SIZE, LEM1802_FF_PIXSIZE); */
-	lem1802_draw(ffdat->pixels, vram, font, palette, bordercol, (dcpu->cycles / 100000) % 2);
-end:
-	lem1802_write("scratch.ff", ffdat);
-	unlink("output.ff");
-	int k  = symlink("scratch.ff", "output.ff");
-	if (k != 0) {
-		fprintf(stderr, "%s\n", strerror(errno));
+		lem1802_draw(ffdat->pixels, vram, font, palette, bordercol, (dcpu->cycles / 100000) % 2);
+	} else {
+		lem1802_draw(ffdat->pixels, dcpu->ram, lem1802_default_font, lem1802_default_palette, 0, 0);
 	}
+
+	lem1802_render(ffdat->pixels, WINDOW);
+
 	free(ffdat);
+#undef WINDOW
 }
 
 void lem1802_interrupt(struct device *device, struct dcpu *dcpu)
@@ -240,11 +372,33 @@ void lem1802_interrupt(struct device *device, struct dcpu *dcpu)
 	}
 }
 
-struct device *make_lem1802(void)
+struct device *make_lem1802(struct dcpu *dcpu)
 {
-	char *data = ecalloc(sizeof(struct device) + sizeof(struct device_lem1802), 1);
+	char *data = emalloc(sizeof(struct device) + sizeof(struct device_lem1802));
 	struct device *device = (struct device *)data;
 	struct device_lem1802 *lem1802 = (struct device_lem1802*)(data + sizeof(struct device));
+	u16 initial_vramoff;
+
+	if (dcpu->emulation_flags & DCPU_EC_TREAT_MONITOR_AS_SPECIAL_DEVICE) {
+		initial_vramoff = 0x8000;
+	} else {
+		initial_vramoff = 0;
+	}
+
+	SDL_SetHint(SDL_HINT_NO_SIGNAL_HANDLERS, "1");
+
+	if (SDL_Init(SDL_INIT_VIDEO) < 0) {
+		fprintf(stderr, "Couldn't initialise SDL: %s\n", SDL_GetError());
+		abort();
+	}
+
+	*lem1802 = (struct device_lem1802){
+		.vramoff = initial_vramoff,
+		.fontoff = 0,
+		.paletteoff = 0,
+		.bordercol = 7,
+		.window = NULL,
+	};
 
 	*device = (struct device){
 		.id=0x7349f615,
@@ -252,7 +406,7 @@ struct device *make_lem1802(void)
 		.manufacturer=0x1c6c8b36,
 		.interrupt=&lem1802_interrupt,
 		.cycle=&lem1802_cycle,
-		.data=&lem1802
+		.data=lem1802
 	};
 
 	return device;

@@ -6,13 +6,13 @@ endif
 
 TARGET    := a.out
 
-PC_DEPS   := sdl
+PC_DEPS   := sdl2
 PC_CFLAGS := $(shell pkg-config --cflags $(PC_DEPS))
 PC_LIBS   := $(shell pkg-config --libs $(PC_DEPS))
 
 SRCS      := $(shell find src -name *.c)
 OBJS      := $(SRCS:%=build/%.o)
-DEPS      := $(OBJS:.o=.d)
+DEPS      := $(OBJS:%.o=%.d)
 
 INCS      := $(addprefix -I,$(shell find ./include -type d))
 

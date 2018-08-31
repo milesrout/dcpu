@@ -12,6 +12,9 @@ struct hardware {
 	struct hardware *next;
 	struct device   *device;
 };
+enum dcpu_emulation_flags {
+	DCPU_EC_TREAT_MONITOR_AS_SPECIAL_DEVICE = 1,
+};
 struct dcpu {
 	u16 registers[8];
 	u16 ram[65536];
@@ -20,6 +23,7 @@ struct dcpu {
 	int cycles;
 	int queue_interrupts;
 	struct hardware *hw;
+	int emulation_flags;
 };
 #define DCPU_INIT {.registers={0}, .ram={0}, .pc=0, .sp=0, .ex=0, .ia=0,\
 	           .cycles=0, .queue_interrupts=true, .hw=NULL}

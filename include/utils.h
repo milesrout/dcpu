@@ -4,4 +4,4 @@
 #pragma GCC poison malloc
 #define erealloc(p, n) ({ void *q = realloc((p), (n)); if (q == NULL) { fprintf(stderr, "%s:%d: Could not reallocate %p to %lu bytes\n", __FILE__, __LINE__, (p), (size_t)(n)); abort(); } q; })
 #pragma GCC poison realloc
-#define get_member_of(type, value, member) (((type*)((value)->data))->member)
+#define get_member_of(t1, value, member) (((t1*)((value)->data))->member)

@@ -1,3 +1,6 @@
 a.out
 *.o
+*.bin
+*.d
 .syntastic_c_config
+build/
