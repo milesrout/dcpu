@@ -396,7 +396,7 @@ struct device *make_lem1802(struct dcpu *dcpu)
 		.vramoff = initial_vramoff,
 		.fontoff = 0,
 		.paletteoff = 0,
-		.bordercol = 7,
+		.bordercol = 0,
 		.window = NULL,
 	};
 

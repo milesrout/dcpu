@@ -1,13 +1,14 @@
 #define _DEFAULT_SOURCE
-#include <arpa/inet.h>
 #include <unistd.h>
+#include <arpa/inet.h>
+#include <errno.h>
 #include <setjmp.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <stdbool.h>
-#include <errno.h>
+#include <time.h>
 
 #include "types.h"
 #include "utils.h"
@@ -373,12 +374,14 @@ static void instr_cycle(struct dcpu *dcpu)
 static void cycle(struct dcpu *dcpu)
 {
 	struct hardware *hw = dcpu->hw;
+
 	while (hw) {
 		if (hw->device) {
 			hw->device->cycle(hw->device, dcpu);
 		}
 		hw = hw->next;
 	}
+
 	instr_cycle(dcpu);
 }
 
@@ -389,6 +392,8 @@ u16 diag[] = {
 int main()
 {
 	struct dcpu dcpu = DCPU_INIT;
+	time_t time1, time2;
+	int cycles_before = 0;
 	
 	/* the program I am currently testing requires that the monitor is
 	 * treated as a special device. essentially it requires that it's
@@ -415,23 +420,19 @@ int main()
 	*dcpu.hw->next->next->next->device = DEVICE_INIT(0x74fa4cae, 0x07c2, 0x21544948);
 
 	dcpu.hw->next->next->next->next = NULL;
+
+	time(&time1);
+	fprintf(stderr, "\n");
 label:
 	if (!setjmp(except_buf)) {
 		while (1) {
 			cycle(&dcpu);
-			/* fprintf(stderr,
-			       "a=0x%04x b=0x%04x c=0x%04x x=0x%04x "
-			       "y=0x%04x z=0x%04x i=0x%04x j=0x%04x | "
-			       "pc=0x%04x sp=0x%04x | cyc=%d skip=%d",
-			       dcpu.registers[0], dcpu.registers[1],
-			       dcpu.registers[2], dcpu.registers[3],
-			       dcpu.registers[4], dcpu.registers[5],
-			       dcpu.registers[6], dcpu.registers[7],
-			       dcpu.pc, dcpu.sp, dcpu.cycles, dcpu.skipping); */
-			/* usleep(20000);*/
-			if (dcpu.skipping) {
-				cycle(&dcpu);
-				continue;
+			time(&time2);
+			if (difftime(time2, time1) >= 0.2) {
+				fprintf(stderr, "%d cycles per second.                         \r",
+					(dcpu.cycles - cycles_before) / 5);
+				cycles_before = dcpu.cycles;
+				time1 = time2;
 			}
 		}
 	} else {
