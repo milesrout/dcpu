@@ -87,6 +87,9 @@ static u16 *decode_b(struct dcpu *dcpu, u16 b, u16 **dirty)
 			throw("decode_b", "out of range");
 	}
 	#undef NEXTWORD
+
+	/* unreachable */
+	abort();
 }
 
 static u16 const *decode_b_nomut(struct dcpu *dcpu, u16 b)
@@ -386,8 +389,8 @@ static u16 *instr_cycle(struct dcpu *dcpu)
 		} else {
 			throw("binaryopcode", "out of range");
 		}
-		return dirty;
 	}
+	return dirty;
 }
 
 static void cycle(struct dcpu *dcpu)

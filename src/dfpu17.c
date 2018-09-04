@@ -16,6 +16,7 @@ struct device_dfpu17 {
 	u16 intrmsg;
 
 	/* pointer/index into the dcpu's ram */
+	u16 loadstatus;
 	u16 loadptr;
 	u16 loadcount;
 
@@ -75,11 +76,14 @@ enum dfpu17_status {
 	STATUS_OFF,
 	STATUS_IDLE,
 	STATUS_RUNNING,
-	STATUS_LOADING_TEXT,
-	STATUS_LOADING_DATA,
-	STATUS_STORING_DATA,
-	STATUS_RUNNING_AND_LOADING_DATA,
-	STATUS_RUNNING_AND_STORING_DATA,
+	STATUS_WAITING,
+};
+
+enum dfpu17_loadstatus {
+	LOADSTATUS_NONE,
+	LOADSTATUS_LOADING_TEXT,
+	LOADSTATUS_LOADING_DATA,
+	LOADSTATUS_STORING_DATA,
 };
 
 enum dfpu17_error {
@@ -125,23 +129,17 @@ void dfpu17_interrupt(struct hardware *hw, struct dcpu *dcpu)
 	case LOAD_DATA:
 		dfpu17_get(hw->device, loadptr) = dcpu->registers[0];
 		dfpu17_get(hw->device, loadcount) = 512;
-		if (dfpu17_get(hw->device, status) == STATUS_RUNNING)
-			dfpu17_get(hw->device, status) = STATUS_RUNNING_AND_LOADING_DATA;
-		else
-			dfpu17_get(hw->device, status) = STATUS_LOADING_DATA;
+		dfpu17_get(hw->device, loadstatus) = LOADSTATUS_LOADING_DATA;
 		break;
 	case LOAD_TEXT:
 		dfpu17_get(hw->device, loadptr) = dcpu->registers[0];
 		dfpu17_get(hw->device, loadcount) = 256;
-		dfpu17_get(hw->device, status) = STATUS_LOADING_TEXT;
+		dfpu17_get(hw->device, loadstatus) = LOADSTATUS_LOADING_TEXT;
 		break;
 	case GET_DATA:
 		dfpu17_get(hw->device, loadptr) = dcpu->registers[0];
 		dfpu17_get(hw->device, loadcount) = 512;
-		if (dfpu17_get(hw->device, status) == STATUS_RUNNING)
-			dfpu17_get(hw->device, status) = STATUS_RUNNING_AND_STORING_DATA;
-		else
-			dfpu17_get(hw->device, status) = STATUS_STORING_DATA;
+		dfpu17_get(hw->device, loadstatus) = LOADSTATUS_STORING_DATA;
 		break;
 	case EXECUTE:
 		if (dfpu17_get(hw->device, mode) == MODE_OFF) {
@@ -149,10 +147,7 @@ void dfpu17_interrupt(struct hardware *hw, struct dcpu *dcpu)
 		} else if (dfpu17_get(hw->device, mode) == MODE_INT) {
 			dfpu17_swap_buffers(hw->device);
 		}
-		if (dfpu17_get(hw->device, status) == STATUS_STORING_DATA)
-			dfpu17_get(hw->device, status) = STATUS_RUNNING_AND_STORING_DATA;
-		else
-			dfpu17_get(hw->device, status) = STATUS_RUNNING;
+		dfpu17_get(hw->device, status) = STATUS_RUNNING;
 		break;
 	case SWAP_BUFFERS:
 		dfpu17_swap_buffers(hw->device);
@@ -173,7 +168,17 @@ struct device *make_dfpu17(struct dcpu *dcpu)
 	(void)dcpu;
 
 	*dfpu17 = (struct device_dfpu17){
-
+		.mode=MODE_OFF,
+		.prec=PREC_SINGLE,
+		.status=STATUS_OFF,
+		.error=ERROR_NONE,
+		.intrmsg=0x0000,
+		.loadstatus=LOADSTATUS_NONE,
+		.loadptr=0x0000,
+		.loadcount=0x0000,
+		.fcreg={0x00, 0x00, 0x00, 0x00},
+		.word={.registers={0}, .data0={0}, .data1={0}},
+		.text={0},
 	};
 
 	*device = (struct device){
