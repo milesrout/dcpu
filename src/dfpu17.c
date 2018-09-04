@@ -19,9 +19,32 @@ struct device_dfpu17 {
 	u16 loadptr;
 	u16 loadcount;
 
+	u8  fcreg[4];
+
+	union {
+		struct {
+			u16 registers[16];
+			u16 data0[512];
+			u16 data1[512];
+		} word;
+		struct {
+			f16 registers[16];
+			f16 data0[512];
+			f16 data1[512];
+		} half;
+		struct {
+			f32 registers[8];
+			f32 data0[256];
+			f32 data1[256];
+		} sngl;
+		struct {
+			f64 registers[4];
+			f64 data0[128];
+			f64 data1[128];
+		} dble;
+	};
+
 	u16 text[256];
-	u16 data0[512];
-	u16 data1[512];
 };
 
 enum dfpu17_command {
@@ -72,10 +95,16 @@ void dfpu17_cycle(struct hardware *hardware, u16 *dirty, struct dcpu *dcpu)
 
 void dfpu17_swap_buffers(struct device *device)
 {
-	u16 tmp[512];
-	memcpy(tmp, dfpu17_get(device, data0), 512 * sizeof(u16));
-	memcpy(dfpu17_get(device, data0), dfpu17_get(device, data1), 512 * sizeof(u16));
-	memcpy(dfpu17_get(device, data1), tmp, 512 * sizeof(u16));
+	u16 temporary[512];
+	memcpy(temporary,
+	       dfpu17_get(device, word.data0),
+	       512 * sizeof(u16));
+	memcpy(dfpu17_get(device, word.data0),
+	       dfpu17_get(device, word.data1),
+	       512 * sizeof(u16));
+	memcpy(dfpu17_get(device, word.data1),
+	       temporary,
+	       512 * sizeof(u16));
 }
 
 void dfpu17_interrupt(struct hardware *hw, struct dcpu *dcpu)
