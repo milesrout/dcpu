@@ -14,7 +14,6 @@
 #include "dcpu.h"
 #include "lem1802.h"
 
-static SDL_Window *_debug_window;
 struct farbfeld_data;
 
 struct device_lem1802 {

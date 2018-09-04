@@ -36,4 +36,4 @@ struct dcpu {
 };
 #define DCPU_INIT {.registers={0}, .ram={0}, .pc=0, .sp=0, .ex=0, .ia=0,\
 	           .skipping=0, .cycles=0, .queue_interrupts=0,\
-		   .hw_count=0, .hw=NULL, .emulation_flags=0}
+	           .hw_count=0, .hw=NULL, .emulation_flags=0}
