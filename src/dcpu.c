@@ -16,79 +16,72 @@
 #include "dcpu.h"
 #include "lem1802.h"
 
-void getchar_interrupt(struct device *device, struct dcpu *dcpu)
-{
-	(void)dcpu;
-//	fprintf(stderr, "#id=0x%08x version=0x%04x man=0x%08x#\n",
-//		device->id, device->version, device->manufacturer);
-//	fprintf(stderr,
-//	       "a=0x%04x b=0x%04x c=0x%04x x=0x%04x "
-//	       "y=0x%04x z=0x%04x i=0x%04x j=0x%04x | "
-//	       "pc=0x%04x sp=0x%04x | cyc=%d skip=%d",
-//	       dcpu->registers[0], dcpu->registers[1],
-//	       dcpu->registers[2], dcpu->registers[3],
-//	       dcpu->registers[4], dcpu->registers[5],
-//	       dcpu->registers[6], dcpu->registers[7],
-//	       dcpu->pc, dcpu->sp, dcpu->cycles, dcpu->skipping);
-//	getchar();
-}
+#define DIRTY(x) ({ u16 *_dirty_p = emalloc(sizeof *_dirty_p); *_dirty_p = (x); _dirty_p; })
 
-void noop_cycle(struct device *device, struct dcpu *dcpu)
+void noop_interrupt(struct hardware *hw, struct dcpu *dcpu)
 {
-	(void)device;
+	(void)hw;
 	(void)dcpu;
 }
 
-struct device *nth_device(struct dcpu *dcpu, u16 n)
+void noop_cycle(struct hardware *hw, u16 *dirty, struct dcpu *dcpu)
 {
-	struct hardware *hw = dcpu->hw;
-	int i;
+	(void)hw;
+	(void)dirty;
+	(void)dcpu;
+}
 
-	for (i = 0; i < n; i++) {
-		if (hw) {
-			hw = hw->next;
-		} else {
-			return NULL;
-		}
-	}
-	if (hw)
-		return hw->device;
-	else
+struct hardware *nth_hardware(struct dcpu *dcpu, u16 n)
+{
+	if (n >= dcpu->hw_count)
 		return NULL;
+
+	return dcpu->hw + n;
 }
 
-static u16 *decode_b(struct dcpu *dcpu, u16 b)
+static u16 *decode_b(struct dcpu *dcpu, u16 b, u16 **dirty)
 {
 	#define NEXTWORD dcpu->ram[dcpu->pc++]
 	switch (b) {
 		case 0x00: case 0x01: case 0x02: case 0x03:
 		case 0x04: case 0x05: case 0x06: case 0x07:
+			*dirty = NULL;
 			return &dcpu->registers[b];
 		case 0x08: case 0x09: case 0x0a: case 0x0b:
 		case 0x0c: case 0x0d: case 0x0e: case 0x0f:
-			return &dcpu->ram[dcpu->registers[b - 0x08]];
+			*dirty = DIRTY(dcpu->registers[b - 0x08]);
+			return &dcpu->ram[**dirty];
 		case 0x10: case 0x11: case 0x12: case 0x13:
 		case 0x14: case 0x15: case 0x16: case 0x17:
 			dcpu->cycles++;
-			return &dcpu->ram[dcpu->registers[b - 0x10] + NEXTWORD];
+			*dirty = DIRTY(dcpu->registers[b - 0x10] + NEXTWORD);
+			return &dcpu->ram[**dirty];
 		case 0x18:
-			return &dcpu->ram[--dcpu->sp];
+			*dirty = DIRTY(--dcpu->sp);
+			return &dcpu->ram[**dirty];
 		case 0x19:
-			return &dcpu->ram[dcpu->sp];
+			*dirty = DIRTY(dcpu->sp);
+			return &dcpu->ram[**dirty];
 		case 0x1a:
 			dcpu->cycles++;
-			return &dcpu->ram[dcpu->sp + NEXTWORD];
+			*dirty = DIRTY(dcpu->sp + NEXTWORD);
+			return &dcpu->ram[**dirty];
 		case 0x1b:
+			*dirty = NULL;
 			return &dcpu->sp;
 		case 0x1c:
+			*dirty = NULL;
 			return &dcpu->pc;
 		case 0x1d:
+			*dirty = NULL;
 			return &dcpu->ex;
 		case 0x1e:
 			dcpu->cycles++;
-			return &dcpu->ram[NEXTWORD];
+			*dirty = DIRTY(NEXTWORD);
+			return &dcpu->ram[**dirty];
 		case 0x1f:
 			dcpu->cycles++;
+			*dirty = NULL;
 			return &NEXTWORD;
 		default:
 			throw("decode_b", "out of range");
@@ -98,16 +91,18 @@ static u16 *decode_b(struct dcpu *dcpu, u16 b)
 
 static u16 const *decode_b_nomut(struct dcpu *dcpu, u16 b)
 {
+	u16 *dirty_unused;
 	if (b == 0x18)
 		return &dcpu->ram[dcpu->sp - 1];
-	return decode_b(dcpu, b);
+	return decode_b(dcpu, b, &dirty_unused);
 }
 
 static u16 decode_a(struct dcpu *dcpu, u16 a)
 {
+	u16 *dirty_unused;
 	if (a >= 0x40) throw("decode_a", "too large");
 	if (a == 0x18) return dcpu->ram[dcpu->sp++];
-	if (a < 0x20) return *decode_b(dcpu, a);
+	if (a < 0x20) return *decode_b(dcpu, a, &dirty_unused);
 
 	/* 0x20-0x3f | literal value 0xffff-0x1e (-1..30) (literal) (only for a) */
 	return a - 0x21;
@@ -120,19 +115,23 @@ static u16 decode_a_nomut(struct dcpu *dcpu, u16 a)
 	return decode_a(dcpu, a);
 }
 
-static void interrupt(struct dcpu *dcpu, u16 message)
+static u16 interrupt(struct dcpu *dcpu, u16 message)
 {
 	(void)dcpu;
 	(void)message;
 	throw("interrupt", "not yet implemented");
+
+	/* if we get here, throw is broken */
+	abort();
 }
 
-static void instr_cycle(struct dcpu *dcpu)
+static u16 *instr_cycle(struct dcpu *dcpu)
 {
 	u16 instruction = dcpu->ram[dcpu->pc++];
 	u16 opcode = instruction & 0b11111;
 	u16 enc_b = (instruction & 0b1111100000) >> 5;
 	u16 enc_a = (instruction & 0b1111110000000000) >> 10;
+	u16 *dirty = NULL;
 
 	/*
 	if (opcode == 0x00) {
@@ -147,64 +146,64 @@ static void instr_cycle(struct dcpu *dcpu)
 	dcpu->cycles++;
 
 	if (dcpu->skipping) {
+		/**
+		 * we still have to decode the operands so that the instruction
+		 * takes up the right number of cycles and consumes the right
+		 * number of 'next word's.
+		 */
 		if (opcode == 0x00) {
 			decode_b_nomut(dcpu, enc_a);
 		} else {
 			decode_a_nomut(dcpu, enc_a);
 			decode_b_nomut(dcpu, enc_b);
 		}
+
+		/* IF chaining */
 		if (0x10 <= opcode && opcode < 0x18)
-			return;
+			return NULL;
 
 		dcpu->skipping = 0;
-		return;
+		return NULL;
 	}
 
 	if (opcode == 0x00) {
 		/* u16   a = decode_a(dcpu, enc_a); */
-		u16 *pa = decode_b(dcpu, enc_a);
+		u16 *pa = decode_b(dcpu, enc_a, &dirty);
 		/* printf("a=%04x [a]=%04x", a, *pa); */
 		switch (enc_b) {
 		case 0x01:
 			dcpu->ram[--dcpu->sp] = dcpu->pc;
 			dcpu->pc = *pa;
 			dcpu->cycles += 2;
-			break;
+			return DIRTY(dcpu->sp);
 		case 0x08:
-			interrupt(dcpu, *pa);
 			dcpu->cycles += 3;
-			break;
+			return DIRTY(interrupt(dcpu, *pa));
 		case 0x09:
-			*decode_b(dcpu, enc_a) = dcpu->ia;
-			break;
+			*pa = dcpu->ia;
+			return dirty;
 		case 0x0a:
 			dcpu->ia = *pa;
-			break;
+			return NULL;
 		case 0x0b:
 			dcpu->queue_interrupts = false;
 			dcpu->registers[0] = dcpu->ram[dcpu->sp++];
 			dcpu->pc = dcpu->ram[dcpu->sp++];
 			dcpu->cycles += 2;
-			break;
+			return NULL;
 		case 0x0c:
 			dcpu->queue_interrupts = (*pa != 0);
 			dcpu->cycles++;
-			break;
+			return NULL;
 		case 0x10:
 		{
-			u16 count = 0;
-			struct hardware *hw = dcpu->hw;
-			while (hw) {
-				count++;
-				hw = hw->next;
-			}
-			*pa = count;
+			*pa = dcpu->hw_count;
 			dcpu->cycles++;
-			break;
+			return dirty;
 		}
 		case 0x11:
 		{
-			struct device *device = nth_device(dcpu, *pa);
+			struct device *device = nth_hardware(dcpu, *pa)->device;
 			if (device != NULL) {
 				dcpu->registers[0] = device->id;
 				dcpu->registers[1] = device->id >> 16;
@@ -213,22 +212,33 @@ static void instr_cycle(struct dcpu *dcpu)
 				dcpu->registers[4] = device->manufacturer >> 16;
 			}
 			dcpu->cycles += 3;
-			break;
+			return NULL;
 		}
 		case 0x12:
 		{
-			struct device *device = nth_device(dcpu, *pa);
-			if (device != NULL && device->interrupt != NULL) {
-				device->interrupt(device, dcpu);
+			struct hardware *hw = nth_hardware(dcpu, *pa);
+			if (hw != NULL && hw->device->interrupt != NULL) {
+				hw->device->interrupt(hw, dcpu);
 			}
 			dcpu->cycles += 3;
-			break;
+
+			/* todo: determine how to deal with hardware devices
+			 * modifying DCPU-16 memory
+			 */
+			return NULL;
 		}
 		default: throw("unaryopcode", "out of range");
 		}
 	} else {
 		u16  a = decode_a(dcpu, enc_a);
-		u16 *b = decode_b(dcpu, enc_b);
+		u16 *b = decode_b(dcpu, enc_b, &dirty);
+#if 0
+		fprintf(stderr, "dirty: %p", dirty);
+		if (dirty)
+			fprintf(stderr, ", 0x%04x\n", *dirty);
+		else
+			fprintf(stderr, "\n");
+#endif
 		if (opcode == 0x01) {
 			*b = a;
 		} else if (opcode == 0x02) {
@@ -305,34 +315,42 @@ static void instr_cycle(struct dcpu *dcpu)
 			dcpu->cycles++;
 			if (!((*b & a) != 0))
 				dcpu->cycles++, dcpu->skipping = 1;
+			return NULL;
 		} else if (opcode == 0x11) {
 			dcpu->cycles++;
 			if (!((*b & a) == 0))
 				dcpu->cycles++, dcpu->skipping = 1;
+			return NULL;
 		} else if (opcode == 0x12) {
 			dcpu->cycles++;
 			if (!(*b == a))
 				dcpu->cycles++, dcpu->skipping = 1;
+			return NULL;
 		} else if (opcode == 0x13) {
 			dcpu->cycles++;
 			if (!(*b != a))
 				dcpu->cycles++, dcpu->skipping = 1;
+			return NULL;
 		} else if (opcode == 0x14) {
 			dcpu->cycles++;
 			if (!(*b > a))
 				dcpu->cycles++, dcpu->skipping = 1;
+			return NULL;
 		} else if (opcode == 0x15) {
 			dcpu->cycles++;
 			if (!((s16)*b > (s16)a))
 				dcpu->cycles++, dcpu->skipping = 1;
+			return NULL;
 		} else if (opcode == 0x16) {
 			dcpu->cycles++;
 			if (!(*b < a))
 				dcpu->cycles++, dcpu->skipping = 1;
+			return NULL;
 		} else if (opcode == 0x17) {
 			dcpu->cycles++;
 			if (!((s16)*b < (s16)a))
 				dcpu->cycles++, dcpu->skipping = 1;
+			return NULL;
 		} else if (opcode == 0x18) {
 			fprintf(stderr, "0x%04x: ", opcode);
 			throw("binaryopcode", "out of range");
@@ -368,32 +386,43 @@ static void instr_cycle(struct dcpu *dcpu)
 		} else {
 			throw("binaryopcode", "out of range");
 		}
+		return dirty;
 	}
 }
 
 static void cycle(struct dcpu *dcpu)
 {
-	struct hardware *hw = dcpu->hw;
+	u16 *dirty;
+	int i;
+	
+	dirty = instr_cycle(dcpu);
 
-	while (hw) {
-		if (hw->device) {
-			hw->device->cycle(hw->device, dcpu);
-		}
-		hw = hw->next;
-	}
-
-	instr_cycle(dcpu);
+	for (i = 0; i < dcpu->hw_count; i++)
+		dcpu->hw[i].device->cycle(dcpu->hw + i, dirty, dcpu);
 }
 
 u16 diag[] = {
 #include "../diag.txt"
 };
 
+#define TIMESLICE 0.01
+#define CLOCKRATE 100000
+
+static double diffclock(struct timespec b, struct timespec a)
+{
+	return (b.tv_sec - a.tv_sec) + (b.tv_nsec - a.tv_nsec) / 1000000000.0;
+}
+
+static double inseconds(struct timespec a)
+{
+	return a.tv_sec + a.tv_nsec / 1000000000.0;
+}
+
 int main()
 {
 	struct dcpu dcpu = DCPU_INIT;
-	time_t time1, time2;
-	int cycles_before = 0;
+	struct timespec last_start, timeslice_start, current;
+	int last_start_cycles, timeslice_start_cycles;
 	
 	/* the program I am currently testing requires that the monitor is
 	 * treated as a special device. essentially it requires that it's
@@ -404,36 +433,91 @@ int main()
 	/* dcpu.ram[0] = 0x7c01; */
 	memcpy(dcpu.ram, diag, sizeof diag);
 
-	dcpu.hw = emalloc(sizeof(struct hardware));
-	dcpu.hw->device = make_lem1802(&dcpu);
+	dcpu.hw_count = 4;
+	dcpu.hw = emalloc(4 * sizeof(struct hardware));
 
-	dcpu.hw->next = emalloc(sizeof(struct hardware));
-	dcpu.hw->next->device = emalloc(sizeof(struct device));
-	*dcpu.hw->next->device = DEVICE_INIT(0x30cf7406, 0x0001, 0x90099009);
+	dcpu.hw[0].device = make_lem1802(&dcpu);
 
-	dcpu.hw->next->next = emalloc(sizeof(struct hardware));
-	dcpu.hw->next->next->device = emalloc(sizeof(struct device));
-	*dcpu.hw->next->next->device = DEVICE_INIT(0x12d0b402, 0x0001, 0x90099009);
+	dcpu.hw[1].device = emalloc(sizeof(struct device));
+	*dcpu.hw[1].device = DEVICE_INIT(0x30cf7406, 0x0001, 0x90099009);
 
-	dcpu.hw->next->next->next = emalloc(sizeof(struct hardware));
-	dcpu.hw->next->next->next->device = emalloc(sizeof(struct device));
-	*dcpu.hw->next->next->next->device = DEVICE_INIT(0x74fa4cae, 0x07c2, 0x21544948);
+	dcpu.hw[2].device = emalloc(sizeof(struct device));
+	*dcpu.hw[2].device = DEVICE_INIT(0x12d0b402, 0x0001, 0x90099009);
 
-	dcpu.hw->next->next->next->next = NULL;
+	dcpu.hw[3].device = emalloc(sizeof(struct device));
+	*dcpu.hw[3].device = DEVICE_INIT(0x74fa4cae, 0x07c2, 0x21544948);
 
-	time(&time1);
-	fprintf(stderr, "\n");
+	clock_gettime(CLOCK_MONOTONIC, &last_start);
+	timeslice_start = last_start;
+	last_start_cycles = timeslice_start_cycles = dcpu.cycles;
+
+	puts("");
 label:
 	if (!setjmp(except_buf)) {
 		while (1) {
-			cycle(&dcpu);
-			time(&time2);
-			if (difftime(time2, time1) >= 0.2) {
-				fprintf(stderr, "%d cycles per second.                         \r",
-					(dcpu.cycles - cycles_before) / 5);
-				cycles_before = dcpu.cycles;
-				time1 = time2;
+			clock_gettime(CLOCK_MONOTONIC, &current);
+
+#if 0
+			if (dcpu.cycles - timeslice_start_cycles > CLOCKRATE * TIMESLICE) {
+				if (!(dcpu.cycles - last_start_cycles > CLOCKRATE * diffclock(current, last_start))) {
+					fprintf(stderr, "a");
+				}
 			}
+			if (dcpu.cycles - last_start_cycles > CLOCKRATE * diffclock(current, last_start)) {
+				if (!(dcpu.cycles - timeslice_start_cycles > CLOCKRATE * TIMESLICE)) {
+					fprintf(stderr, "b");
+				}
+			}
+#endif
+
+			if (dcpu.cycles - timeslice_start_cycles > CLOCKRATE * TIMESLICE
+				&& dcpu.cycles - last_start_cycles > CLOCKRATE * diffclock(current, last_start)) {
+				double sleeptime = diffclock(timeslice_start, current) + TIMESLICE;
+#if 1
+				fprintf(stderr, "cc=%d, tsc=%d, lsc=%d\n", dcpu.cycles, timeslice_start_cycles, last_start_cycles);
+				fprintf(stderr, "c=%f, ts=%f, ls=%f\n",
+						inseconds(current),
+						inseconds(timeslice_start),
+						inseconds(last_start));
+				fprintf(stderr, "ets=%f, rem=%f\n",
+					inseconds(timeslice_start) + TIMESLICE,
+					inseconds(timeslice_start) + TIMESLICE - inseconds(current));
+				fprintf(stderr, "ec=%f\n", CLOCKRATE * diffclock(current, last_start));
+				
+#endif
+				if (sleeptime > 0) {
+					fprintf(stderr, "sleeping for %fms\n", 1000 * sleeptime);
+					usleep(1000000.0 * sleeptime);
+				}
+				clock_gettime(CLOCK_MONOTONIC, &current);
+
+#if 1
+				fprintf(stderr, "c=%f, ls=%f\n",
+					inseconds(current),
+					inseconds(last_start));
+				fprintf(stderr, "%d cycles in %fs = %f Hz.\n",
+					dcpu.cycles - last_start_cycles,
+					diffclock(current, last_start),
+					1.0 * (dcpu.cycles - last_start_cycles) /
+					diffclock(current, last_start));
+#endif
+
+				timeslice_start_cycles = dcpu.cycles;
+				timeslice_start = current;
+				continue;
+			}
+
+#if 0
+			/* fprintf(stderr, "%ld\n", clock2);*/
+			if (diffclock(current, timeslice_start) >= 0.01) {
+				fprintf(stderr, "%d cycles per 10ms.                         \n",
+					(dcpu.cycles - timeslice_start_cycles) / 5);
+				timeslice_start_cycles = dcpu.cycles;
+				timeslice_start = current;
+			}
+#endif
+
+			cycle(&dcpu);
 		}
 	} else {
 		fprintf(stderr, "%s: %s", except->desc, except->what);
