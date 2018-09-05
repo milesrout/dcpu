@@ -16,6 +16,7 @@
 #include "exception.h"
 #include "dcpu.h"
 #include "lem1802.h"
+#include "dfpu17.h"
 
 #define DIRTY(x) ({ u16 *_dirty_p = emalloc(sizeof *_dirty_p); *_dirty_p = (x); _dirty_p; })
 
@@ -437,19 +438,21 @@ int main()
 	/* dcpu.ram[0] = 0x7c01; */
 	memcpy(dcpu.ram, diag, sizeof diag);
 
-	dcpu.hw_count = 4;
-	dcpu.hw = emalloc(4 * sizeof(struct hardware));
+	dcpu.hw_count = 5;
+	dcpu.hw = emalloc(5 * sizeof(struct hardware));
 
 	dcpu.hw[0].device = make_lem1802(&dcpu);
 
-	dcpu.hw[1].device = emalloc(sizeof(struct device));
-	*dcpu.hw[1].device = DEVICE_INIT(0x30cf7406, 0x0001, 0x90099009);
+	dcpu.hw[1].device = make_dfpu17(&dcpu);
 
 	dcpu.hw[2].device = emalloc(sizeof(struct device));
-	*dcpu.hw[2].device = DEVICE_INIT(0x12d0b402, 0x0001, 0x90099009);
+	*dcpu.hw[2].device = DEVICE_INIT(0x30cf7406, 0x0001, 0x90099009);
 
 	dcpu.hw[3].device = emalloc(sizeof(struct device));
-	*dcpu.hw[3].device = DEVICE_INIT(0x74fa4cae, 0x07c2, 0x21544948);
+	*dcpu.hw[3].device = DEVICE_INIT(0x12d0b402, 0x0001, 0x90099009);
+
+	dcpu.hw[4].device = emalloc(sizeof(struct device));
+	*dcpu.hw[4].device = DEVICE_INIT(0x74fa4cae, 0x07c2, 0x21544948);
 
 	clock_gettime(CLOCK_MONOTONIC, &last_start);
 	timeslice_start = last_start;

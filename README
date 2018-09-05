@@ -1,0 +1,11 @@
+dcpu is an emulator for the DCPU-16.
+
+Supports:
+ * DCPU-16 1.7
+ * LEM1802 (screen)
+ * DFPU-17 (my floating point unit)
+
+Planned:
+ * All official hardware
+ * All common unofficial hardware
+ * DCPU-16e (my memory bank/protection extension)
