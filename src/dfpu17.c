@@ -131,37 +131,95 @@ void dfpu17_halt(struct device *device, struct dcpu *dcpu, int status, int error
 	}
 }
 
+void invalid_precision(u16 x) {
+	(void)x;
+	abort();
+}
+
+#define SWAP(x,y) ({ __typeof(x) _tmp = x; x = y; y = _tmp; })
+#define IREG  dfpu17_get(hw->device, fcreg)
+#define PREC  dfpu17_get(hw->device, prec)
+#define PC    dfpu17_get(hw->device, pc)
+#define COUNT dfpu17_get(hw->device, loadcount)
+#define PTR   dfpu17_get(hw->device, loadptr)
+#define TEXT  dfpu17_get(hw->device, text)
+#define DATA  dfpu17_get(hw->device, word.data1)
+#define SREG  dfpu17_get(hw->device, sngl).registers
+#define HREG  dfpu17_get(hw->device, half).registers
+#define DREG  dfpu17_get(hw->device, dble).registers
+#define SMEM  dfpu17_get(hw->device, sngl).data0
+#define HMEM  dfpu17_get(hw->device, half).data0
+#define DMEM  dfpu17_get(hw->device, dble).data0
+
 void dfpu17_execute_short(struct hardware *hw, struct dcpu *dcpu, u8 instruction)
 {
+#define BINOP(O,R,S) do {\
+	if (PREC == PREC_HALF) {\
+		f16 r = HREG[R]; (void)r;\
+		f16 s = HREG[S]; (void)s;\
+		O;\
+	} else if (PREC == PREC_SINGLE) {\
+		f32 r = SREG[R]; (void)r;\
+		f32 s = SREG[S]; (void)s;\
+		O;\
+	} else {\
+		f64 r = DREG[R]; (void)r;\
+		f64 s = DREG[S]; (void)s;\
+		O;\
+	} } while (0)
+
 	(void)hw;
 	(void)dcpu;
 
 	switch ((instruction >> 4) & 0x7) {
-	case 0x0: /* one-operand instructions */
+	case 0x0: { /* one-operand instructions */
+#define A ((instruction >> 0) & 0x3)
 		switch ((instruction >> 2) & 0x3) {
 		case 0x0: /* zero @a */
+			IREG[A] = 0;
 			return;
 		case 0x1: /* inc @a */
+			IREG[A]++;
 			return;
 		case 0x2: /* dec @a */
+			IREG[A]--;
 			return;
 		case 0x3: /* jmp @a */
+			PC = IREG[A];
 			return;
 		}
+#undef A
+	}
+#define A ((instruction >> 2) & 0x3)
+#define B ((instruction >> 0) & 0x3)
 	case 0x1: /* jc @a,@b */
+		if (IREG[A] == 0)
+			PC = IREG[B];
 		return;
-	case 0x2: /* mov @a,@b */
+	case 0x2: /* set @a,@b */
+		IREG[A] = IREG[B];
 		return;
 	case 0x3: /* swap @a,@b */
+		SWAP(IREG[A], IREG[B]);
 		return;
-	case 0x4: /* add %r,%s */
+#undef B
+#undef A
+#define R ((instruction >> 2) & 0x3)
+#define S ((instruction >> 0) & 0x3)
+	case 0x4: /* mov %r,%s */
+		BINOP(r = s, R, S);
 		return;
-	case 0x5: /* sub %r,%s */
+	case 0x5: /* add %r,%s */
+		BINOP(r = r + s, R, S);
 		return;
-	case 0x6: /* mul %r,%s */
+	case 0x6: /* sub %r,%s */
+		BINOP(r = r - s, R, S);
 		return;
-	case 0x7: /* div %r,%s */
+	case 0x7: /* mul %r,%s */
+		BINOP(r = r * s, R, S);
 		return;
+#undef R
+#undef S
 	}
 }
 
@@ -200,47 +258,81 @@ void dfpu17_execute(struct hardware *hw, struct dcpu *dcpu)
 		case 0x1:
 			switch ((instruction >> 8) & 0x7) {
 				case 0x0:
+#define A ((instruction >> 2) & 0x3)
+#define B ((instruction >> 0) & 0x3)
 					switch ((instruction >> 4) & 0xf) {
 					case 0x0: /* jc @a,@b */
+						if (IREG[A] == 0)
+							PC = IREG[B];
 						return;
 					case 0x1: /* set @a,@b */
+						IREG[A] = IREG[B];
 						return;
 					case 0x2: /* swap @a,@b */
+						SWAP(IREG[A], IREG[B]);
 						return;
 					default: /* [unassigned] */
 						throw("dfpu17opcode", "out of range");
 					}
+#undef B
+#undef A
 				case 0x1:
+#define A ((instruction >> 0) & 0x3)
 					switch ((instruction >> 2) & 0x3f) {
 					case 0x0: /* zero @a */
+						IREG[A] = 0;
 						return;
 					case 0x1: /* jmp @a */
+						PC = IREG[A];
 						return;
 					case 0x2: /* inc @a */
+						IREG[A]++;
 						return;
 					case 0x3: /* dec @a */
+						IREG[A]--;
 						return;
 					default: /* [unassigned] */
 						throw("dfpu17opcode", "out of range");
 					}
+#undef A
 				case 0x2:
+#define A ((instruction >> 0) & 0xf)
+#define B ((instruction >> 4) & 0x3)
 					switch ((instruction >> 6) & 0x3) {
 					case 0x0: /* ld %a,@b */
+						if (PREC == PREC_HALF)
+							HREG[A] = HMEM[B];
+						else if (PREC == PREC_SINGLE)
+							SREG[A] = SMEM[B];
+						else
+							DREG[A] = DMEM[B];
 						return;
 					case 0x1: /* st @b,%a */
+						if (PREC == PREC_HALF)
+							HMEM[B] = HREG[A];
+						else if (PREC == PREC_SINGLE)
+							SMEM[B] = SREG[A];
+						else
+							DMEM[B] = DREG[A];
 						return;
-					case 0x2: /* rnd @b,%a */
-						return;
+					case 0x2: /* [unassigned] */
+						throw("dfpu17opcode", "out of range");
 					case 0x3: /* [unassigned] */
 						throw("dfpu17opcode", "out of range");
 					}
+#undef B
+#undef A
 				case 0x7: /* jmp $b */
-					return;
+#define B ((instruction >> 0) & 0xff)
+					PC = TEXT[PC + 1];
+#undef B
 				default: /* [unassigned] */
 					throw("dfpu17opcode", "out of range");
 			}
 		}
 	case 0x1: /* various @/$ ops */
+#define A ((instruction >> 8) & 0x3)
+#define B ((instruction >> 0) & 0xff)
 		switch ((instruction >> 10) & 0x3) {
 		case 0x0: /* loop @a,$b */
 			return;
@@ -251,6 +343,8 @@ void dfpu17_execute(struct hardware *hw, struct dcpu *dcpu)
 		case 0x3: /* [unassigned] */
 			return;
 		}
+#undef B
+#undef A
 	case 0x2: /* ld %,$ */
 		return;
 	case 0x3: /* st %,$ */
@@ -365,10 +459,6 @@ void dfpu17_execute(struct hardware *hw, struct dcpu *dcpu)
 
 void dfpu17_cycle(struct hardware *hw, u16 *dirty, struct dcpu *dcpu)
 {
-#define COUNT dfpu17_get(hw->device, loadcount)
-#define PTR dfpu17_get(hw->device, loadptr)
-#define TEXT dfpu17_get(hw->device, text)
-#define DATA dfpu17_get(hw->device, word.data1)
 
 	/* the DFPU-17 is not memory-mapped and thus doesn't care about dirty */
 	(void)dirty;
