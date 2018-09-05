@@ -1,6 +1,7 @@
 a.out
 *.o
 *.bin
+*.hex
 *.d
 .syntastic_c_config
 build/

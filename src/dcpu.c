@@ -215,6 +215,12 @@ static u16 *instr_cycle(struct dcpu *dcpu)
 				dcpu->registers[2] = device->version;
 				dcpu->registers[3] = device->manufacturer;
 				dcpu->registers[4] = device->manufacturer >> 16;
+				fprintf(stderr, "A:0x%04x B:0x%04x C:0x%04x X:0x%04x Y:0x%04x\n",
+					dcpu->registers[0],
+					dcpu->registers[1],
+					dcpu->registers[2],
+					dcpu->registers[3],
+					dcpu->registers[4]);
 			}
 			dcpu->cycles += 3;
 			return NULL;
@@ -407,7 +413,7 @@ static void cycle(struct dcpu *dcpu)
 }
 
 u16 diag[] = {
-#include "../diag.txt"
+#include "../examples/diag.hex"
 };
 
 #define TIMESLICE 0.01
