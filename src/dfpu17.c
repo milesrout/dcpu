@@ -1,3 +1,6 @@
+#define _GNU_SOURCE
+#include <math.h>
+#include <tgmath.h>
 #include <setjmp.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -103,6 +106,7 @@ void dfpu17_enqueue_interrupt(struct dcpu *dcpu)
 	(void)dcpu;
 }
 
+/* this should probably work by swapping pointers or something instead.. */
 void dfpu17_swap_buffers(struct device *device)
 {
 	u16 temporary[512];
@@ -144,30 +148,44 @@ void invalid_precision(u16 x) {
 #define PTR   dfpu17_get(hw->device, loadptr)
 #define TEXT  dfpu17_get(hw->device, text)
 #define DATA  dfpu17_get(hw->device, word.data1)
-#define SREG  dfpu17_get(hw->device, sngl).registers
 #define HREG  dfpu17_get(hw->device, half).registers
+#define SREG  dfpu17_get(hw->device, sngl).registers
 #define DREG  dfpu17_get(hw->device, dble).registers
-#define SMEM  dfpu17_get(hw->device, sngl).data0
 #define HMEM  dfpu17_get(hw->device, half).data0
+#define SMEM  dfpu17_get(hw->device, sngl).data0
 #define DMEM  dfpu17_get(hw->device, dble).data0
-
-void dfpu17_execute_short(struct hardware *hw, struct dcpu *dcpu, u8 instruction)
-{
 #define BINOP(O,R,S) do {\
 	if (PREC == PREC_HALF) {\
 		f16 r = HREG[R]; (void)r;\
 		f16 s = HREG[S]; (void)s;\
-		O;\
+		HREG[R] = O;\
 	} else if (PREC == PREC_SINGLE) {\
 		f32 r = SREG[R]; (void)r;\
 		f32 s = SREG[S]; (void)s;\
-		O;\
+		SREG[R] = O;\
 	} else {\
 		f64 r = DREG[R]; (void)r;\
 		f64 s = DREG[S]; (void)s;\
-		O;\
+		DREG[R] = O;\
 	} } while (0)
+#define UNARYOP(O,A) do {\
+	if (PREC == PREC_HALF) {\
+		f16 a = HREG[A]; (void)a;\
+		HREG[A] = O;\
+	} else if (PREC == PREC_SINGLE) {\
+		f32 a = SREG[A]; (void)a;\
+		SREG[A] = O;\
+	} else {\
+		f64 a = DREG[A]; (void)a;\
+		DREG[A] = O;\
+	} } while (0)
+#define CMP(O,A,B) ((PREC == PREC_HALF) ? (HREG[A] O HREG[B]) \
+		  : (PREC == PREC_SINGLE) ? (SREG[A] O SREG[B]) \
+		  : (DREG[A] O DREG[B]))
 
+
+void dfpu17_execute_short(struct hardware *hw, struct dcpu *dcpu, u8 instruction)
+{
 	(void)hw;
 	(void)dcpu;
 
@@ -207,16 +225,16 @@ void dfpu17_execute_short(struct hardware *hw, struct dcpu *dcpu, u8 instruction
 #define R ((instruction >> 2) & 0x3)
 #define S ((instruction >> 0) & 0x3)
 	case 0x4: /* mov %r,%s */
-		BINOP(r = s, R, S);
+		BINOP(s, R, S);
 		return;
 	case 0x5: /* add %r,%s */
-		BINOP(r = r + s, R, S);
+		BINOP(r + s, R, S);
 		return;
 	case 0x6: /* sub %r,%s */
-		BINOP(r = r - s, R, S);
+		BINOP(r - s, R, S);
 		return;
 	case 0x7: /* mul %r,%s */
-		BINOP(r = r * s, R, S);
+		BINOP(r * s, R, S);
 		return;
 #undef R
 #undef S
@@ -301,19 +319,19 @@ void dfpu17_execute(struct hardware *hw, struct dcpu *dcpu)
 					switch ((instruction >> 6) & 0x3) {
 					case 0x0: /* ld %a,@b */
 						if (PREC == PREC_HALF)
-							HREG[A] = HMEM[B];
+							HREG[A] = HMEM[IREG[B]];
 						else if (PREC == PREC_SINGLE)
-							SREG[A] = SMEM[B];
+							SREG[A] = SMEM[IREG[B]];
 						else
-							DREG[A] = DMEM[B];
+							DREG[A] = DMEM[IREG[B]];
 						return;
 					case 0x1: /* st @b,%a */
 						if (PREC == PREC_HALF)
-							HMEM[B] = HREG[A];
+							HMEM[IREG[B]] = HREG[A];
 						else if (PREC == PREC_SINGLE)
-							SMEM[B] = SREG[A];
+							SMEM[IREG[B]] = SREG[A];
 						else
-							DMEM[B] = DREG[A];
+							DMEM[IREG[B]] = DREG[A];
 						return;
 					case 0x2: /* [unassigned] */
 						throw("dfpu17opcode", "out of range");
@@ -324,7 +342,7 @@ void dfpu17_execute(struct hardware *hw, struct dcpu *dcpu)
 #undef A
 				case 0x7: /* jmp $b */
 #define B ((instruction >> 0) & 0xff)
-					PC = TEXT[PC + 1];
+					PC = B;
 #undef B
 				default: /* [unassigned] */
 					throw("dfpu17opcode", "out of range");
@@ -335,51 +353,86 @@ void dfpu17_execute(struct hardware *hw, struct dcpu *dcpu)
 #define B ((instruction >> 0) & 0xff)
 		switch ((instruction >> 10) & 0x3) {
 		case 0x0: /* loop @a,$b */
+			IREG[A]--;
+			if (IREG[A] != 0)
+				PC = B;
 			return;
 		case 0x1: /* jc @a,$b */
+			if (IREG[A] == 0)
+				PC = B;
 			return;
 		case 0x2: /* set @a,$b */
+			IREG[A] = B;
 			return;
 		case 0x3: /* [unassigned] */
-			return;
+			throw("dfpu17opcode", "out of range");
 		}
 #undef B
 #undef A
+#define A ((instruction >> 8) & 0xf)
+#define B ((instruction >> 0) & 0xff)
 	case 0x2: /* ld %,$ */
+		if (PREC == PREC_HALF)
+			HREG[A] = HMEM[B];
+		else if (PREC == PREC_SINGLE)
+			SREG[A] = SMEM[B];
+		else
+			DREG[A] = DMEM[B];
 		return;
 	case 0x3: /* st %,$ */
+		if (PREC == PREC_HALF)
+			HMEM[B] = HREG[A];
+		else if (PREC == PREC_SINGLE)
+			SMEM[B] = SREG[A];
+		else
+			DMEM[B] = DREG[A];
 		return;
+#undef B
+#undef A
 	case 0x4: /* %,% and % ops */
 		switch ((instruction >> 11) & 0x1) {
 		case 0x0:
+#define A ((instruction >> 0) & 0xf)
 			switch ((instruction >> 8) & 0x7) {
 			case 0x0:
 				switch ((instruction >> 4) & 0xf) {
 				case 0x0: /* sin %a */
+					UNARYOP(sin(a), A);
 					return;
 				case 0x1: /* cos %a */
+					UNARYOP(cos(a), A);
 					return;
 				case 0x2: /* tan %a */
+					UNARYOP(tan(a), A);
 					return;
 				case 0x3: /* asin %a */
+					UNARYOP(asin(a), A);
 					return;
 				case 0x4: /* acos %a */
+					UNARYOP(acos(a), A);
 					return;
 				case 0x5: /* atan %a */
+					UNARYOP(atan(a), A);
 					return;
 				case 0x6: /* sqrt %a */
+					UNARYOP(sqrt(a), A);
 					return;
 				case 0x7: /* rnd %a */
+					UNARYOP(round(a), A);
 					return;
-				case 0x8: /* log %a */
+				case 0x8: /* log10 %a */
+					UNARYOP(log10(a), A);
 					return;
 				case 0x9: /* log2 %a */
+					UNARYOP(log2(a), A);
 					return;
-				case 0xa: /* ln %a */
+				case 0xa: /* log %a */
+					UNARYOP(log(a), A);
 					return;
 				case 0xb: /* [unassigned] */
 					throw("dfpu17opcode", "out of range");
 				case 0xc: /* abs %a */
+					UNARYOP(fabs(a), A);
 					return;
 				default:  /* [unassigned] */
 					throw("dfpu17opcode", "out of range");
@@ -387,70 +440,126 @@ void dfpu17_execute(struct hardware *hw, struct dcpu *dcpu)
 			case 0x1:
 				switch ((instruction >> 4) & 0xf) {
 				case 0x0: /* ldz %a */
+					UNARYOP(0.0, A);
 					return;
 				case 0x1: /* ld1 %a */
+					UNARYOP(1.0, A);
 					return;
 				case 0x2: /* ldpi %a */
+					UNARYOP(M_PI, A);
 					return;
 				case 0x3: /* lde %a */
+					UNARYOP(M_E, A);
 					return;
 				case 0x4: /* ldsr2 %a */
+					UNARYOP(sqrt(2.0), A);
 					return;
 				case 0x5: /* ldphi %a */
+					UNARYOP(1.6180339887498948482, A);
 					return;
 				case 0x6: /* [unassigned] */
-					return;
+					throw("dfpu17opcode", "out of range");
 				case 0x7: /* [unassigned] */
-					return;
+					throw("dfpu17opcode", "out of range");
 				case 0x8: /* ldl2e %a */
+					UNARYOP(log2(M_E), A);
 					return;
-				case 0x9: /* ldl2t %a */
+				case 0x9: /* ldl2x %a */
+					UNARYOP(log2(10.0), A);
 					return;
 				case 0xa: /* ldlg2 %a */
+					UNARYOP(log10(2), A);
 					return;
 				case 0xb: /* ldln2 */
-					throw("dfpu17opcode", "out of range");
+					UNARYOP(log(2), A);
+					return;
 				default:  /* [unassigned] */
 					throw("dfpu17opcode", "out of range");
 				}
 			default: /* [unassigned] */
 				throw("dfpu17opcode", "out of range");
 			}
+#undef A
 		case 0x1:
+#define R ((instruction >> 0) & 0xf)
+#define S ((instruction >> 4) & 0xf)
 			switch ((instruction >> 8) & 0x7) {
-			case 0x0: /* mov %a,%b */
+			case 0x0: /* mov %r,%s */
+				BINOP(s, R, S);
 				return;
-			case 0x1: /* xchg %a,%b */
+			case 0x1: /* xchg %r,%s */
+				if (PREC == PREC_HALF)
+					SWAP(HREG[R], HREG[S]);
+				else if (PREC == PREC_SINGLE)
+					SWAP(SREG[R], SREG[S]);
+				else
+					SWAP(DREG[R], DREG[S]);
 				return;
-			case 0x2: /* add %a,%b */
+			case 0x2: /* add %r,%s */
+				BINOP(r + s, R, S);
 				return;
-			case 0x3: /* mul %a,%b */
+			case 0x3: /* mul %r,%s */
+				BINOP(r * s, R, S);
 				return;
-			case 0x4: /* sub %a,%b */
+			case 0x4: /* sub %r,%s */
+				BINOP(r - s, R, S);
 				return;
-			case 0x5: /* rsub %a,%b */
+			case 0x5: /* rsub %r,%s */
+				BINOP(s - r, R, S);
 				return;
-			case 0x6: /* div %a,%b */
+			case 0x6: /* div %r,%s */
+				BINOP(r / s, R, S);
 				return;
-			case 0x7: /* rdiv %a,%b */
+			case 0x7: /* rdiv %r,%s */
+				BINOP(s / r, R, S);
 				return;
 			}
+#undef S
+#undef R
 		}
 	case 0x5: /* comparisons */
+#define A ((instruction >> 0) & 0xf)
+#define B ((instruction >> 4) & 0xf)
+#define C ((instruction >> 8) & 0x3)
 		switch ((instruction >> 10) & 0x3) {
 		case 0x0: /* lt @c,%a,%b */
+			IREG[C] = CMP(<, A, B);
 			return;
 		case 0x1: /* gt @c,%a,%b */
+			IREG[C] = CMP(>, A, B);
 			return;
 		case 0x2: /* eq @c,%a,%b */
+			IREG[C] = CMP(==, A, B);
 			return;
 		case 0x3: /* ne @c,%a,%b */
+			IREG[C] = CMP(!=, A, B);
 			return;
 		}
+#undef C
+#undef B
+#undef A
+#define A ((instruction >> 0) & 0xf)
+#define B ((instruction >> 4) & 0xf)
+#define C ((instruction >> 8) & 0xf)
 	case 0x6: /* atan %a,%y,%x */
+		if (PREC == PREC_HALF)
+			HREG[A] = atan2(HREG[B], HREG[C]);
+		else if (PREC == PREC_SINGLE)
+			SREG[A] = atan2(SREG[B], SREG[C]);
+		else
+			DREG[A] = atan2(DREG[B], DREG[C]);
 		return;
 	case 0x7: /* fma  %a,%b,%c*/
+		if (PREC == PREC_HALF)
+			HREG[A] = fma(HREG[A], HREG[B], HREG[C]);
+		else if (PREC == PREC_SINGLE)
+			SREG[A] = fma(SREG[A], SREG[B], SREG[C]);
+		else
+			DREG[A] = fma(DREG[A], DREG[B], DREG[C]);
 		return;
+#undef C
+#undef B
+#undef A
 	}
 
 	/* all possible cases are covered above */
