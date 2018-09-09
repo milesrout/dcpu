@@ -5,3 +5,5 @@ a.out
 *.d
 .syntastic_c_config
 build/
+__pycache__/
+*.pyc

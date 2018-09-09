@@ -1,0 +1,109 @@
+; test out the fpu
+; this program is synchronous i.e. it busy-loops while the FPU is running
+
+set pc, start
+
+start:
+	jsr fpu_init
+	jsr fpu_load_data
+	jsr fpu_load_text
+	jsr fpu_swap_buffers
+	jsr fpu_execute
+	jsr fpu_get_status
+	jsr fpu_swap_buffers
+	jsr fpu_get_data
+	ifn b, 0              ; if there was an error
+	  set pc, panic
+	ife b, 0              ; if there was an error
+	  set pc, print
+loop:
+	set pc, loop
+	dat 0
+
+fpu_init:
+	set z, 0             ; set the mode
+	set a, 2             ; to MODE_POLL
+	hwi 1
+	set z, 1             ; set the precision
+	set a, 0             ; to PREC_SINGLE
+	hwi 1
+	set pc, pop
+
+fpu_load_data:
+	set z, 3             ; load data
+	set a, data_storage  ; from static memory
+	hwi 1
+	jsr fpu_wait_idle
+	set pc, pop
+
+fpu_load_text:
+	set z, 4             ; load text
+	set a, initial_text  ; from static memory
+	hwi 1
+	jsr fpu_wait_idle
+	set pc, pop
+
+fpu_get_data:
+	set z, 5             ; store data
+	set a, data_storage  ; in static memory
+	hwi 1
+	jsr fpu_wait_idle
+	set pc, pop
+
+fpu_get_status:
+	set z, 2
+	hwi 1
+	set pc, pop
+
+fpu_wait_idle:
+	set z, 2
+	hwi 1
+	ifn a, 1
+	  set pc, fpu_wait_idle
+	set pc, pop
+
+fpu_swap_buffers:
+	set z, 7
+	hwi 1
+	set pc, pop
+
+fpu_execute:
+	set z, 6
+	hwi 1
+	jsr fpu_wait_idle
+	set pc, pop
+
+print:
+	set i, [data_storage + 4]
+	set j, [data_storage + 5]
+	dat 0
+	set pc, print
+
+panic:
+	set i, 0xbeef
+	set j, 0xdead
+	dat 0
+	set pc, panic
+
+initial_text:
+	dat 0x2000 ;   ld   %0,$0
+	dat 0x4111 ;   ld1  %1
+	dat 0x2301 ;   ld   %3,$1
+	dat 0x180a ;   set  @0,$a
+	           ; LABEL:
+	dat 0x4802 ;   mov  %2,%0
+	dat 0x4e12 ;   div  %2,%1
+	dat 0x4a12 ;   add  %2,%1
+	dat 0x4e32 ;   div  %2,%3
+	dat 0x4821 ;   mov  %1,%2
+	dat 0x1004 ;   loop @0,$LABEL
+	dat 0x3102 ;   st   $2,%1
+	dat 0x0002 ;   halt
+
+	.fill 500 0
+data_storage:
+	dat 0x0000, 0x447a
+	dat 0x0000, 0x4000
+	dat 0x3f00, 0x0000
+	dat 0x3f00, 0x0000
+	dat 0x3f00, 0x0000

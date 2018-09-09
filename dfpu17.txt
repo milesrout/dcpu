@@ -1,0 +1,367 @@
+                A Floating Point Unit for the DCPU-16
+
+This is a short document describing the DFPU-17 (D17), a
+floating-point coprocessor for the DCPU-16 (D16). Despite its
+simplicity, the DCPU-16 provides significant
+functionality. However, a significant problem is its lack of
+high-throughput floating-point support. The D17 exists to solve
+this problem.
+
+                DCPU-16 Hardware Info:
+
+Name: DFPU-17 - Floating Point Coprocessor
+ID: 0x1DE171F3, Version: 0x0001
+Manufacturer: 0x52307537 (MILES_ROUT)
+
+                Description:
+
+The DFPU-17 (D17) is an optional floating-point coprocessor for
+the DCPU-16. Its main purpose is to be used for navigation and
+orientation in space. It is capable of operating in various modes
+depending on whether the user's needs.
+
+The D17 has three banks of memory: two 512-word DATA banks and a
+256-word TEXT bank. Each time floating-point data needs to be
+processed, the user loads text and data into the device and
+instructs it to execute the text on the data. The two DATA banks
+are double-buffered: the CPU can retrieve data while the device is
+working on data. The device works on the "primary buffer" while
+the "secondary buffer" is readable and writable by the CPU.
+Swapping the buffers simply swaps these labels: the primary
+buffer becomes the secondary buffer and vice versa.
+
+Note: The TEXT bank is NOT double-buffered. If the CPU interrupts
+the device with the LOAD_TEXT command while the device is
+executing code, undefined behaviour will occur: most likely the
+device will be rendered inoperable until a hard reset is
+performed.
+
+                Interrupt Behaviour:
+
+When a hardware interrupt is received by the D17, it reads the Z
+register and does one of the following actions:
+
+ (0x00) SET_MODE: The device will read the A register and sets the
+        operating mode to one of the following options:
+
+        0x00: MODE_OFF. The device will be deactivated, clearing
+        all of its data and code memory, and putting it into
+        standby mode. The device will have negligible power drain
+        while in standby, and will respond only to the SET_MODE
+        command.
+
+        0x01: MODE_INT: The device will be activated if in
+        MODE_OFF. Whenever the device receives an EXECUTE command,
+        it will swap buffers and then execute. When it has completed
+        execution it will swap buffers again and interrupt the
+        CPU.
+
+        Note: In MODE_INT the device can only effectively use one
+        buffer.
+
+        Note: Switching to MODE_INT will fail and set an error
+        status and error message if SET_INTERRUPT_MESSAGE has not
+        been called.
+
+        0x02: MODE_POLL: The device operates in the same way as
+        MODE_INT, except the D17 will not automatically swap buffers,
+        nor interrupt the CPU when finished. Instead, it is the CPU's
+        responsibility to poll the device to determine its status.
+
+        Note: In MODE_POLL the CPU has more responsibility and incurs
+        more load, but as a result it can make use of both DATA banks.
+
+    Note: See end of document for a demonstration of a procedure for
+    using MODE_POLL.
+
+ (0x01) SET_PREC: The device will read the A register and set the
+        working precision level. The default is single-precision.
+
+        0x00: PREC_SINGLE: The D17 will work with single-precision
+        floating point numbers. Invalidates loaded text and data.
+
+        0x01: PREC_DOUBLE: The D17 will work with double-precision
+        floating point numbers. Invalidates loaded text and data.
+
+        0x02: PREC_HALF: The D17 will work with half-precision
+        floating point numbers. Invalidates loaded text and data.
+
+ (0x02) GET_STATUS: The next interrupt to the device with the
+        message 0xFFFF will set the following registers as
+        described:
+
+        A: STATUS: the status, selected from the statuses listed
+        in Table I: Statuses.
+ 
+        B: ERROR: the most recent error message, selected from the
+        error messages listed in Table II: Error Messages.
+
+        C: the register is set to 0.  X: the register is set to 0.
+
+        Note: this is so that future expansion of GET_STATUS
+        incorporating useful information in C and X will not break
+        programs that assume that those registers will be ignored
+        by GET_STATUS.
+
+ (0x03) LOAD_DATA: The device will read the A register and load
+        512 words from the CPU's RAM at address A into the secondary
+        DATA buffer. The address must be aligned at a 512 word boundary.
+
+ (0x04) LOAD_TEXT: The device will read the A register and load
+        256 words from the CPU's RAM at address A into the
+        TEXT buffer. The address must be aligned at a 512 word boundary.
+
+ (0x05) GET_DATA: The device will read the A register and load 512
+        words of data from the secondary buffer into the CPU's RAM at
+        address A. The address must be aligned at a 512 word boundary.
+
+ (0x06) EXECUTE: The device will not read any registers. If in
+        MODE_POLL, the device will process the data in the primary
+        buffer.
+        
+        If in MODE_INT, the device will swap buffers and then process
+        the data in the new primary buffer. When finished, the device
+        will swap buffers again and then interrupt the CPU with the
+        interrupt message set with SET_INTERRUPT_MESSAGE.
+
+ (0x07) SWAP_BUFFERS: Swap the primary and secondary DATA
+        buffers. Only works in MODE_POLL.
+
+ (0x08) SET_INTERRUPT_MESSAGE: The device will set the interrupt
+        message used while in MODE_INT to the contents of the A
+        register.
+
+                Instruction Set Architecture:
+
+The D17 has sixteen/eight/four (depending on precision) floating point
+registers and four 8-bit integer flow control and indexing registers.
+The device's memory is indexed according to the precision mode i.e.
+in PREC_DOUBLE mode, the smallest addressable unit of memory is a
+64-bit double, while in PREC_HALF mode, it is a 16-bit half.
+
+The device also has a small stack for storing integers. It is a true stack:
+only the topmost item may be accessed. It is also very small: a maximum size
+of four items.
+
+Note: Accessing the upper twelve registers while in double-precision
+mode or the upper eight while in single-precision mode is
+undefined behaviour.
+
+The instruction mnemonics below use the following scheme:
+     % means 'floating-point register'
+     @ means 'integer register'
+     $ means 'integer immediate'
+
+All instructions fall into one of three categories:
+
+ (a) Arithmetic instructions, which each take a single cycle.
+
+     rnd    %    - round to integer   (back into %register)
+     abs    %    - absolute value     (a = |a|)
+     add   %,%   - addition           (a = a + b)
+     mul   %,%   - multiply           (a = a * b)
+     sub   %,%   - subtract           (a = a - b)
+     rsub  %,%   - subtract (reverse) (a = b - a)
+     div   %,%   - divide             (a = a / b)
+     rdiv  %,%   - divide (reverse)   (a = b / a)
+     fma  %,%,%  - fused multiply-add (a = a + b * c)
+     atan %,%,%  - 2-arg arctangent   (a = arctan(y/x))
+
+     rnd   @,%   - round to integer   (into @register) (REMOVED)
+
+     lt   @,%,%  - if %left < %right, then @ = 0, else @ = 1
+     gt   @,%,%  - if %left > %right, then @ = 0, else @ = 1
+     eq   @,%,%  - if %left == %right, then @ = 0, else @ = 1
+     ne   @,%,%  - if %left != %right, then @ = 0, else @ = 1
+
+ (b) Floating-point functions such as trigonometric functions,
+     which take a variable number of cycles.
+
+     sin    %    - sine
+     cos    %    - cosine
+     tan    %    - tangent
+     asin   %    - inverse sine
+     acos   %    - inverse cosine
+     atan   %    - inverse tangent
+     sqrt   %    - square root
+     log10  %    - logarithm base 10
+     log2   %    - logarithm base 2
+     log    %    - natural logarithm
+
+ (c) Integral and flow-control instructions that operate on integer
+     registers.
+     
+     noop        - no operation
+     wait        - pause until EXECUTE is called again  (status=WAITING)
+     halt        - stop execution and reset state       (status=DONE)
+     fail        - stop execution and reset state       (status=FAILED)
+     set   @,$   - load an immediate integer into register
+     set   @,@   - move the value from @right to @left
+     swap  @,@   - swap the values in two registers
+     dec    @    - decrement register
+     inc    @    - increment register
+     zero   @    - set register to zero
+     push   @    - push register to the integer stack
+     pop    @    - move from the integer stack into register
+     peek   @    - copy from the integer stack into register
+     jmp    @    - jump to register
+     jmp    $    - jump to immediate address
+     jc    @,$   - jump to immediate address if register is zero
+     jc    @,@   - jump to @right if @left is zero
+     cmp   @,$   - if @a < $x, then @a := -1 (255)
+                   else if @a > $x, then @a := 1
+	           else @a := 0
+     loop  @,$   - decrement register then jump to immediate address
+                   if register is non-zero
+
+     Note: The device operates most efficiently when flow-control
+     is minimised.
+
+ (d) Memory-related instructions such as loads and stores.
+     
+     ld    %,$   - load a floating point number from DATA
+     ld    %,@   - load a floating point number from DATA
+     ldz    %    - load zero              (0.0)
+     ld1    %    - load one               (1.0)
+     ldl2e  %    - load the logarithm base 2 of e
+     ldl2x  %    - load the logarithm base 2 of 10
+     ldlg2  %    - load the logarithm base 10 of 2
+     ldln2  %    - load the natural logarithm of 2
+     ldpi   %    - load pi                (~3.1415)
+     lde    %    - load euler's number    (~2.7183)
+     ldsr2  %    - load square root of 2  (~1.4142)
+     ldphi  %    - load golden ratio      (~1.6180)
+     st    $,%   - store a floating point number in DATA
+     st    @,%   - store a floating point number in DATA
+     mov   %,%   - copy from %right to %left
+     xchg  %,%   - exchange %left and %right
+
+     Note: The device does not support the loading of arbitrary
+     literal floating-point immediates, so anything that would
+     otherwise be an immediate must be loaded as data. The device
+     does have some instructions to load arbitrary integral
+     immediates.
+
+                Instruction Format:
+
+The precise encoding of each function is given in Appendix 1.
+
+                Short form instructions
+
+These are highly dense short forms of other more general
+instructions. Any word where the most significant bits of
+the MSB and the LSB are both set encodes two short form
+instructions viz.
+
+     0*** **** 0*** **** - does not encode two short instructions
+     0*** **** 1*** **** - does not encode two short instructions
+     1*** **** 0*** **** - does not encode two short instructions
+     1aaa aaaa 1bbb bbbb - two short form instructions, a and b.
+
+The MSB is executed first. TODO: explain why
+
+     zero   @a    - 00000aa
+     inc    @a    - 00001aa
+     dec    @a    - 00010aa
+     jmp    @a    - 00011aa
+     jc    @a,@b  - 001aabb
+     set   @a,@b  - 010aabb
+     swap  @a,@b  - 011aabb
+     
+     mov   %r,%s  - 100rrss (*)
+     add   %r,%s  - 101rrss (*)
+     sub   %r,%s  - 110rrss (*)
+     mul   %r,%s  - 111rrss (*)
+
+Note: the short-form instructions marked with a (*) are only
+abled to encode a subset of the operands the instruction can
+take. 
+
+e.g. add %2,%1 can be short-form-encoded but add %15,%3 cannot.
+
+                Immediates
+
+Immediate values are values included in the instruction stream
+itself.
+
+Floating-point numbers cannot be encoded as immediates, so any floats
+a program needs should be included in DATA. Many commonly used
+constants have special loading instructions.
+
+     e.g. 'ldpi %0' will set %0 to π.
+
+Integers can be encoded as immediates. Integer registers can be
+set to arbitrary integral immediates, but also many integral and
+flow control instructions can take immediate arguments without
+having to go through the very limited integral register set.
+
+                Loops and Flow Control:
+        
+The loop instruction implements an efficient downwards-counting
+loop. It takes an index register and a relative offset, which it
+uses to jump back.
+
+For example, the Babylonian method for computing square roots can be
+computed like this:
+
+        ld       %0,$0        ; load first memory cell (number to sqrt) into %0
+        ld1      %1           ; load 1 into %1
+        ld       %3,$1        ; load second memory cell (literal 2.0) into %3
+        set      @0,$a        ; load 10 into @0
+    LABEL:
+        mov      %2,%0        ;      %2 <- S
+        div      %2,%1        ;      %2 <- S / x_n
+        add      %2,%1        ;      %2 <- x_n + S / x_n
+        div      %2,%3        ;      %2 <- (x_n + S / x_n) / 2
+        mov      %1,%2        ; x_{n+1} <- %2
+        loop     @0,$LABEL    ; dec @0 and loop until @0 equals 0.
+        st       $2,%1        ; store result
+
+Note: there is a sqrt instruction.
+
+                MODE_POLL Algorithm:
+
+This algorithm is useful if you want to do more than a couple of
+sets of data with the same code.
+
+     load_text(text);
+     load_data(data1);
+     swap_buffers();
+     execute();
+     load_data(data2);
+     while (!ready())
+         cpu_sleep();
+     swap_buffers();
+     while (true) {
+         execute();
+         get_data(data1);
+         if (finished)
+             goto break1;
+         load_data(data2);
+         while (!ready())
+             cpu_sleep();
+         swap_buffers();
+
+         execute();
+         get_data(data2);
+         if (finished)
+             goto break2;
+         load_data(data1);
+         while (!ready())
+             cpu_sleep();
+         swap_buffers();     
+     }
+ break1:
+     while (!ready())
+         cpu_sleep();
+     swap_buffers();
+     get_data(data2);
+     goto end;
+ break2:
+     while (!ready())
+         cpu_sleep();
+     swap_buffers();
+     get_data(data1);
+     goto end;
+end: 
+     //done!

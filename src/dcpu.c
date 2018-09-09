@@ -174,13 +174,36 @@ static u16 *instr_cycle(struct dcpu *dcpu)
 	if (opcode == 0x00) {
 		/* u16   a = decode_a(dcpu, enc_a); */
 		u16 *pa = decode_b(dcpu, enc_a, &dirty);
-		/* printf("a=%04x [a]=%04x", a, *pa); */
+		/* printf("b=%04x\n", enc_b); */
 		switch (enc_b) {
+		case 0x00:
+			/* BREAK */
+			fprintf(stderr, " A:0x%04x  B:0x%04x  C:0x%04x  I:0x%04x\n",
+				dcpu->registers[0], dcpu->registers[1],
+				dcpu->registers[2], dcpu->registers[6]);
+			fprintf(stderr, " X:0x%04x  Y:0x%04x  Z:0x%04x  J:0x%04x\n",
+				dcpu->registers[3], dcpu->registers[4],
+				dcpu->registers[5], dcpu->registers[7]);
+			fprintf(stderr, "PC:0x%04x SP:0x%04x EX:0x%04x IA:0x%04x\n",
+				dcpu->pc, dcpu->sp, dcpu->ex, dcpu->ia);
+			getchar();
+			return NULL;
 		case 0x01:
 			dcpu->ram[--dcpu->sp] = dcpu->pc;
 			dcpu->pc = *pa;
 			dcpu->cycles += 2;
 			return DIRTY(dcpu->sp);
+		case 0x02:
+			/* TRACE */
+			fprintf(stderr, " A:0x%04x  B:0x%04x  C:0x%04x  I:0x%04x\n",
+				dcpu->registers[0], dcpu->registers[1],
+				dcpu->registers[2], dcpu->registers[6]);
+			fprintf(stderr, " X:0x%04x  Y:0x%04x  Z:0x%04x  J:0x%04x\n",
+				dcpu->registers[3], dcpu->registers[4],
+				dcpu->registers[5], dcpu->registers[7]);
+			fprintf(stderr, "PC:0x%04x SP:0x%04x EX:0x%04x IA:0x%04x\n",
+				dcpu->pc, dcpu->sp, dcpu->ex, dcpu->ia);
+			return NULL;
 		case 0x08:
 			dcpu->cycles += 3;
 			return DIRTY(interrupt(dcpu, *pa));
@@ -412,8 +435,8 @@ static void cycle(struct dcpu *dcpu)
 		dcpu->hw[i].device->cycle(dcpu->hw + i, dirty, dcpu);
 }
 
-u16 diag[] = {
-#include "../examples/diag.hex"
+u16 programme[] = {
+#include "../examples/mandelbrot.hex"
 };
 
 #define TIMESLICE 0.01
@@ -435,14 +458,19 @@ int main()
 	struct timespec last_start, timeslice_start, current;
 	int last_start_cycles, timeslice_start_cycles;
 	
-	/* the program I am currently testing requires that the monitor is
-	 * treated as a special device. essentially it requires that it's
-	 * automatically mapped to 0x8000 at the beginning of execution.
+	dcpu.quirks = 0;
+	/* turn me on if the program you are testing requires that the monitor
+	 * is automatically turned on at the beginning of execution and mapped
+	 * to 0x8000.
 	 */
-	dcpu.emulation_flags = DCPU_EC_TREAT_MONITOR_AS_SPECIAL_DEVICE;
+	/* dcpu.quirks |= DCPU_QUIRKS_LEM1802_ALWAYS_ON; */
 
-	/* dcpu.ram[0] = 0x7c01; */
-	memcpy(dcpu.ram, diag, sizeof diag);
+	/* turn me on if the program you are testing can use a 24-bit colour
+	 * palette. (rrrrrggggggbbbbb instead of 0000rrrrggggbbbb).
+	 */
+	/* dcpu.quirks |= DCPU_QUIRKS_LEM1802_USE_16BIT_COLOUR; */
+
+	memcpy(dcpu.ram, programme, sizeof programme);
 
 	dcpu.hw_count = 5;
 	dcpu.hw = emalloc(5 * sizeof(struct hardware));
@@ -486,7 +514,7 @@ label:
 			if (dcpu.cycles - timeslice_start_cycles > CLOCKRATE * TIMESLICE
 				&& dcpu.cycles - last_start_cycles > CLOCKRATE * diffclock(current, last_start)) {
 				double sleeptime = diffclock(timeslice_start, current) + TIMESLICE;
-#if 1
+#if 0
 				fprintf(stderr, "cc=%d, tsc=%d, lsc=%d\n", dcpu.cycles, timeslice_start_cycles, last_start_cycles);
 				fprintf(stderr, "c=%f, ts=%f, ls=%f\n",
 						inseconds(current),
@@ -499,12 +527,12 @@ label:
 				
 #endif
 				if (sleeptime > 0) {
-					fprintf(stderr, "sleeping for %fms\n", 1000 * sleeptime);
+					/* fprintf(stderr, "sleeping for %fms\n", 1000 * sleeptime); */
 					usleep(1000000.0 * sleeptime);
 				}
 				clock_gettime(CLOCK_MONOTONIC, &current);
 
-#if 1
+#if 0
 				fprintf(stderr, "c=%f, ls=%f\n",
 					inseconds(current),
 					inseconds(last_start));
@@ -533,7 +561,22 @@ label:
 			cycle(&dcpu);
 		}
 	} else {
-		fprintf(stderr, "%s: %s", except->desc, except->what);
+		fprintf(stderr, "%s: %s\n", except->desc, except->what);
+		fprintf(stderr, " 0x%04x 0x%04x 0x%04x 0x%04x\n",
+			dcpu.ram[110], dcpu.ram[111],
+			dcpu.ram[112], dcpu.ram[113]);
+		fprintf(stderr, " 0x%04x 0x%04x 0x%04x 0x%04x\n",
+			dcpu.ram[512 + 110], dcpu.ram[512 + 111],
+			dcpu.ram[512 + 112], dcpu.ram[512 + 113]);
+		fprintf(stderr, " A:0x%04x  B:0x%04x  C:0x%04x  I:0x%04x\n",
+			dcpu.registers[0], dcpu.registers[1],
+			dcpu.registers[2], dcpu.registers[6]);
+		fprintf(stderr, " X:0x%04x  Y:0x%04x  Z:0x%04x  J:0x%04x\n",
+			dcpu.registers[3], dcpu.registers[4],
+			dcpu.registers[5], dcpu.registers[7]);
+		fprintf(stderr, "PC:0x%04x SP:0x%04x EX:0x%04x IA:0x%04x\n",
+			dcpu.pc, dcpu.sp, dcpu.ex, dcpu.ia);
+		abort();
 		goto label;
 	}
 }

@@ -1,0 +1,460 @@
+; calculate the mandelbrot set on the FPU
+; this program is synchronous i.e. it busy-loops while the FPU is running
+; in the future it will be upgraded so that it draws and loads more data 
+; while the FPU is running
+
+.define vram 0x8000
+
+set pc, start
+
+start:	jsr fpu_init
+	jsr fpu_load_text
+
+	; we do this later, many times, now.
+	;;; set a, data_storage_1
+	;;; jsr fpu_load_data
+	;;; jsr fpu_swap_buffers
+	;;; jsr fpu_execute
+	;;; jsr fpu_get_status
+	;;; jsr fpu_swap_buffers
+	;;; set a, data_storage_1
+	;;; jsr fpu_get_data
+	;;; ifn b, 0              ; if there was an error
+	;;;   set pc, panic
+	set pc, bwhite
+	set pc, spin
+
+fpu_init:
+	set z, 0             ; set the mode
+	set a, 2             ; to MODE_POLL
+	hwi 1
+	set z, 1             ; set the precision
+	set a, 0             ; to PREC_SINGLE
+	hwi 1
+	set pc, pop
+
+fpu_load_data:
+	set z, 3             ; load data
+	;set a, data_storage_1  ; from static memory
+	hwi 1
+	jsr fpu_wait_idle
+	set pc, pop
+
+fpu_load_text:
+	set z, 4             ; load text
+	set a, initial_text  ; from static memory
+	hwi 1
+	jsr fpu_wait_idle
+	set pc, pop
+
+fpu_get_data:
+	set z, 5             ; store data
+	;set a, data_storage  ; in static memory
+	hwi 1
+	jsr fpu_wait_idle
+	set pc, pop
+
+fpu_get_status:
+	set z, 2
+	hwi 1
+	set pc, pop
+
+fpu_wait_idle:
+	set z, 2
+	hwi 1
+	ifn a, 1
+	  set pc, fpu_wait_idle
+	set pc, pop
+
+fpu_swap_buffers:
+	set z, 7
+	hwi 1
+	set pc, pop
+
+fpu_execute:
+	set z, 6
+	hwi 1
+	jsr fpu_wait_idle
+	set pc, pop
+
+stoi:	set push, x
+	set push, y
+	ifn a, 0
+	  set pc, stoi_cont
+	ifn b, 0
+	  set pc, stoi_cont
+	set a, 0
+	set y, pop
+	set x, pop
+	set pc, pop
+stoi_cont:
+	; shif
+	set x, b
+	shr x, 7
+	and x, 0xff
+	set y, 142
+	sub y, x
+	; sign
+	set x, b
+	shr x, 15
+	and x, 1
+	; mant
+	shr a, 8
+	and b, 0x7f
+	shl b, 8
+	bor a, b
+	bor a, 0x8000 ; set top bit
+	shr a, y
+	ife x, 1
+	  mli a, -1
+	set y, pop
+	set x, pop
+	set pc, pop
+
+print:	set a, 0
+	set b, vram
+	hwi 0
+	set i, 0
+pl1:	set j, 0
+pl2:    set x, i   ; x = 2 * ((i * 16) + j)
+        mul x, 16  ; |
+	add x, j   ; |
+	add x, x   ; <
+	set a, [data_storage_1 + x]
+	set b, [data_storage_1 + 1 + x]
+	set x, i    ; x = (i * 32) + j
+	mul x, 32   ; |
+	add x, j    ; v
+	ifn a, 0
+	  set pc, panic
+	jsr stoi
+	set b, a
+	;and b, 0xf
+	set c, 0x0020
+	shl b, 8
+	bor c, b
+	shl b, 4
+	bor c, b
+	set [vram + x], c
+	add j, 1      ; doubly nested loop
+	ifn j, 16     ; |
+	  set pc, pl2 ; |
+	set j, 0      ; |
+	add i, 1      ; |
+	ifn i, 12     ; |
+	  set pc, pl1 ; <
+	set pc, spin
+
+store:	set c, a
+	set z, b
+	set i, 0
+sl1:	set j, 0
+sl2:    set x, i   ; x = 2 * ((i * 16) + j)
+        mul x, 16  ; |
+	add x, j   ; |
+	add x, x   ; <
+	set a, [data_storage_1 + x]
+	set b, [data_storage_1 + 1 + x]
+	set x, j    ; x = (i * 16) + j
+	mul x, 16   ; |
+	add x, i    ; v
+	ifn a, 0
+	  set pc, panic
+	jsr stoi
+	mul c, 2
+	shr z, 1
+	add c, z
+	shl c, 8
+	add x, c
+	set [pixel_storage + x], a
+	add j, 1      ; doubly nested loop stuff
+	ifn j, 16     ; |
+	  set pc, sl2 ; |
+	set j, 0      ; |
+	add i, 1      ; |
+	ifn i, 16     ; |
+	  set pc, sl1 ; <
+	set pc, pop
+
+panic:	set i, 0xbeef
+	set j, 0xdead
+	dat 0
+	set pc, spin
+
+; colour not yet supported
+color: set pc, panic
+
+bwhite:	; initialise screen
+	set a, 0
+	set b, vram
+	hwi 0
+	set a, 1
+	set b, font
+	hwi 0
+
+	; initialise coordinates
+	set a, 0
+	set b, 0
+bwhite_loop:
+	set [data_storage_1 + 0], [values_across + 0 + a]
+	set [data_storage_1 + 1], [values_across + 1 + a]
+	set [data_storage_1 + 2], [values_across + 2 + a]
+	set [data_storage_1 + 3], [values_across + 3 + a]
+	set [data_storage_1 + 4], [values_down + 0 + b]
+	set [data_storage_1 + 5], [values_down + 1 + b]
+	set [data_storage_1 + 6], [values_down + 2 + b]
+	set [data_storage_1 + 7], [values_down + 3 + b]
+
+	; need to be able to restore these later
+	set push, a
+	set push, b
+
+	; go process everything on the FPU
+	jsr bw_run_fpu
+
+	; restore a and b
+	set b, pop
+	set a, peek
+	set push, b
+
+	; convert floating point data to integers
+	jsr bw_data_to_pixels
+
+	; restore a and b
+	set b, pop
+	set a, peek
+	set push, b
+
+	; paint to video ram
+	jsr bw_pixels_to_vram
+
+	; restore a and b
+	set b, pop
+	set a, pop
+
+	add a, 2
+	ifn a, 8
+	  set pc, bwhite_loop
+	set a, 0
+	add b, 2
+	ifn b, 6
+	  set pc, bwhite_loop
+
+	set pc, spin
+
+bw_run_fpu:
+	set a, data_storage_1
+	jsr fpu_load_data
+	jsr fpu_swap_buffers
+	jsr fpu_execute
+	jsr fpu_get_status
+	jsr fpu_swap_buffers
+	set a, data_storage_1
+	jsr fpu_get_data
+	ifn b, 0              ; if there was an error
+	  set pc, panic
+	set pc, pop
+
+bw_data_to_pixels:
+        jsr store
+	set pc, pop
+
+bw_pixels_to_vram:
+	set c, a
+	set j, b
+	mul j, 2
+	mul c, 4
+	set i, 0
+bwhite_inner:
+	set b, i
+	div b, 16
+	set z, i
+	mod z, 16
+	set x, b
+	div x, 4
+	set y, z
+	div y, 2
+	mod z, 2
+	mod b, 4
+	mul z, 4
+	add z, b
+	; (x,y,z) is character bit coordinate
+	add x, j
+	mul x, 32
+	add y, c
+	add x, y
+	dat 0x00f0
+	; (x,z) is character bit coordinate
+	; (i) is the pixel storage coordinate
+	;ife z, 0
+	;  and [vram + x], 0
+	bor [vram + x], 0xf000
+	ife [pixel_storage + i], 0
+	  set pc, bwhite_skip
+	ifn z, 0
+	  set pc, bwhite_skip0
+	bor [vram + x], 0x0001
+bwhite_skip0:
+	ifn z, 1
+	  set pc, bwhite_skip1
+	bor [vram + x], 0x0002
+bwhite_skip1:
+	ifn z, 2
+	  set pc, bwhite_skip2
+	bor [vram + x], 0x0004
+bwhite_skip2:
+	ifn z, 3
+	  set pc, bwhite_skip3
+	bor [vram + x], 0x0008
+bwhite_skip3:
+	ifn z, 4
+	  set pc, bwhite_skip4
+	bor [vram + x], 0x0010
+bwhite_skip4:
+	ifn z, 5
+	  set pc, bwhite_skip5
+	bor [vram + x], 0x0020
+bwhite_skip5:
+	ifn z, 6
+	  set pc, bwhite_skip6
+	bor [vram + x], 0x0040
+bwhite_skip6:
+	ifn z, 7
+	  set pc, bwhite_skip
+	xor [vram + x], 0xff7f
+bwhite_skip:
+	add i, 1
+	ifn i, 256
+	  set pc, bwhite_inner
+	set pc, pop
+
+spin:	set pc, spin
+
+initial_text:
+	dat 0x2000	;    ld   %0,$0
+	dat 0x2101	;    ld   %1,$1
+	dat 0x2202	;    ld   %2,$2
+	dat 0x2303	;    ld   %3,$3
+	dat 0x2404	;    ld   %4,$4
+	dat 0x4c02	;    sub  %2,%0
+	dat 0x4c13	;    sub  %3,%1
+	dat 0x4e42	;    div  %2,%4
+	dat 0x4e43	;    div  %3,%4
+	dat 0x0900	;    zero @0
+	dat 0x1910	;    set  @1,$16
+	dat 0x1a10	;    set  @2,$16
+	dat 0x4804	;L5: mov  %4,%0    L5=12 (0c
+	dat 0x4815	;    mov  %5,%1
+	dat 0x1b01	;    set  @3,$1
+	dat 0x4846	;L1: mov  %6,%4    L1=15 (0f)
+	dat 0x4b66	;    mul  %6,%6
+	dat 0x4857	;    mov  %7,%5
+	dat 0x4b77	;    mul  %7,%7
+	dat 0x4a76	;    add  %6,%7
+	dat 0x0a42	;    st   @0,%2
+	dat 0x0910	;    push @0
+	dat 0x4112	;    ld1  %2
+	dat 0x4a22	;    add  %2,%2
+	dat 0x4a22	;    add  %2,%2
+	dat 0x5026	;    lt   @0,%6,%2
+	dat 0x4c76	;    sub  %6,%7
+	dat 0x4c76	;    sub  %6,%7
+	dat 0x1425	;    jc   @0,L2
+	dat 0x0914	;    pop  @0
+	dat 0x0a02	;    ld   %2,@0
+	dat 0x4104	;    ldz  %4
+	dat 0x4115	;    ld1  %5
+	dat 0x4a54	;L3: add  %4,%5    L3=33 (21)
+	dat 0x1321	;    loop @3,L3
+	dat 0x0a44	;    st   @0,%4
+	dat 0x0f38	;    jmp  L7
+	dat 0x0914	;L2: pop  @0       L2=37 (25)
+	dat 0x0a02	;    ld   %2,@0
+	dat 0x4847	;    mov  %7,%4
+	dat 0x4a77	;    add  %7,%7
+	dat 0x4b57	;    mul  %7,%5
+	dat 0x4a06	;    add  %6,%0
+	dat 0x4a17	;    add  %7,%1
+	dat 0x4864	;    mov  %4,%6
+	dat 0x4875	;    mov  %5,%7
+	dat 0x090b	;    inc  @3
+	dat 0x0913	;    push @3
+	dat 0x1f10	;    cmp  @3,$MAX_ITERATIONS=16
+	dat 0x1734	;    jc   @3,L4
+	dat 0x0917	;    pop  @3
+	dat 0x0f0f	;    jmp  L1 
+	dat 0x0917	;L4: pop  @3       L4=52 (34)
+	dat 0x4104	;    ldz  %4
+	dat 0x0a44	;    st   @0,%4
+	dat 0x0f38	;    jmp  L7
+	dat 0x0908	;L7: inc  @0       L7=56 (38)
+	dat 0x4a31	;    add  %1,%3
+	dat 0x120c	;    loop @2,L5
+	dat 0x1a10	;    set  @2,$16
+	dat 0x4c31	;L8: sub  %1,%3   ; yikes!   L8=60 (3c)
+	dat 0x123c	;    loop @2,L8
+	dat 0x1a10	;    set  @2,$16
+	dat 0x4a20	;    add  %0,%2
+	dat 0x110c	;    loop @1,L5
+	dat 0x0002	;    halt
+	.fill 190 0
+
+data_storage_1:
+	dat 0x0000, 0xbf80
+	dat 0x0000, 0xc020
+	dat 0x0000, 0x3f80
+	dat 0x0000, 0x3f80
+	dat 0x0000, 0x4180
+	.fill 507 0
+
+data_storage_2:
+	.fill 512 0
+
+pixel_storage:
+	.fill 0xc00 0
+
+values_down:
+	dat 0x0000, 0x3f80
+	dat 0xaaab, 0x3eaa
+	dat 0xaaab, 0xbeaa
+	dat 0x0000, 0xbf80
+
+values_across:
+	dat 0x0000, 0xc020
+	dat 0x0000, 0xbfd0
+	dat 0x0000, 0xbf40
+	dat 0x0000, 0x3e00
+	dat 0x0000, 0x3f80
+
+font:   dat 0x0000, 0x0000, 0x0303, 0x0000, 0x0c0c, 0x0000, 0x0f0f, 0x0000
+	dat 0x3030, 0x0000, 0x3333, 0x0000, 0x3c3c, 0x0000, 0x3f3f, 0x0000
+	dat 0xc0c0, 0x0000, 0xc3c3, 0x0000, 0xcccc, 0x0000, 0xcfcf, 0x0000
+	dat 0xf0f0, 0x0000, 0xf3f3, 0x0000, 0xfcfc, 0x0000, 0xffff, 0x0000
+	dat 0x0000, 0x0303, 0x0303, 0x0303, 0x0c0c, 0x0303, 0x0f0f, 0x0303
+	dat 0x3030, 0x0303, 0x3333, 0x0303, 0x3c3c, 0x0303, 0x3f3f, 0x0303
+	dat 0xc0c0, 0x0303, 0xc3c3, 0x0303, 0xcccc, 0x0303, 0xcfcf, 0x0303
+	dat 0xf0f0, 0x0303, 0xf3f3, 0x0303, 0xfcfc, 0x0303, 0xffff, 0x0303
+	dat 0x0000, 0x0c0c, 0x0303, 0x0c0c, 0x0c0c, 0x0c0c, 0x0f0f, 0x0c0c
+	dat 0x3030, 0x0c0c, 0x3333, 0x0c0c, 0x3c3c, 0x0c0c, 0x3f3f, 0x0c0c
+	dat 0xc0c0, 0x0c0c, 0xc3c3, 0x0c0c, 0xcccc, 0x0c0c, 0xcfcf, 0x0c0c
+	dat 0xf0f0, 0x0c0c, 0xf3f3, 0x0c0c, 0xfcfc, 0x0c0c, 0xffff, 0x0c0c
+	dat 0x0000, 0x0f0f, 0x0303, 0x0f0f, 0x0c0c, 0x0f0f, 0x0f0f, 0x0f0f
+	dat 0x3030, 0x0f0f, 0x3333, 0x0f0f, 0x3c3c, 0x0f0f, 0x3f3f, 0x0f0f
+	dat 0xc0c0, 0x0f0f, 0xc3c3, 0x0f0f, 0xcccc, 0x0f0f, 0xcfcf, 0x0f0f
+	dat 0xf0f0, 0x0f0f, 0xf3f3, 0x0f0f, 0xfcfc, 0x0f0f, 0xffff, 0x0f0f
+	dat 0x0000, 0x3030, 0x0303, 0x3030, 0x0c0c, 0x3030, 0x0f0f, 0x3030
+	dat 0x3030, 0x3030, 0x3333, 0x3030, 0x3c3c, 0x3030, 0x3f3f, 0x3030
+	dat 0xc0c0, 0x3030, 0xc3c3, 0x3030, 0xcccc, 0x3030, 0xcfcf, 0x3030
+	dat 0xf0f0, 0x3030, 0xf3f3, 0x3030, 0xfcfc, 0x3030, 0xffff, 0x3030
+	dat 0x0000, 0x3333, 0x0303, 0x3333, 0x0c0c, 0x3333, 0x0f0f, 0x3333
+	dat 0x3030, 0x3333, 0x3333, 0x3333, 0x3c3c, 0x3333, 0x3f3f, 0x3333
+	dat 0xc0c0, 0x3333, 0xc3c3, 0x3333, 0xcccc, 0x3333, 0xcfcf, 0x3333
+	dat 0xf0f0, 0x3333, 0xf3f3, 0x3333, 0xfcfc, 0x3333, 0xffff, 0x3333
+	dat 0x0000, 0x3c3c, 0x0303, 0x3c3c, 0x0c0c, 0x3c3c, 0x0f0f, 0x3c3c
+	dat 0x3030, 0x3c3c, 0x3333, 0x3c3c, 0x3c3c, 0x3c3c, 0x3f3f, 0x3c3c
+	dat 0xc0c0, 0x3c3c, 0xc3c3, 0x3c3c, 0xcccc, 0x3c3c, 0xcfcf, 0x3c3c
+	dat 0xf0f0, 0x3c3c, 0xf3f3, 0x3c3c, 0xfcfc, 0x3c3c, 0xffff, 0x3c3c
+	dat 0x0000, 0x3f3f, 0x0303, 0x3f3f, 0x0c0c, 0x3f3f, 0x0f0f, 0x3f3f
+	dat 0x3030, 0x3f3f, 0x3333, 0x3f3f, 0x3c3c, 0x3f3f, 0x3f3f, 0x3f3f
+	dat 0xc0c0, 0x3f3f, 0xc3c3, 0x3f3f, 0xcccc, 0x3f3f, 0xcfcf, 0x3f3f
+	dat 0xf0f0, 0x3f3f, 0xf3f3, 0x3f3f, 0xfcfc, 0x3f3f, 0xffff, 0x3f3f

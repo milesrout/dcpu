@@ -20,8 +20,9 @@ struct device {
 struct hardware {
 	struct device *device;
 };
-enum emulation_flags {
-	DCPU_EC_TREAT_MONITOR_AS_SPECIAL_DEVICE = 1,
+enum dcpu_quirks {
+	DCPU_QUIRKS_LEM1802_ALWAYS_ON = 1,
+	DCPU_QUIRKS_LEM1802_USE_16BIT_COLOUR = 2,
 };
 struct dcpu {
 	u16 registers[8];
@@ -32,8 +33,8 @@ struct dcpu {
 	int queue_interrupts;
 	u16 hw_count;
 	struct hardware *hw;
-	int emulation_flags;
+	int quirks;
 };
 #define DCPU_INIT {.registers={0}, .ram={0}, .pc=0, .sp=0, .ex=0, .ia=0,\
 	           .skipping=0, .cycles=0, .queue_interrupts=0,\
-	           .hw_count=0, .hw=NULL, .emulation_flags=0}
+	           .hw_count=0, .hw=NULL, .quirks=0}

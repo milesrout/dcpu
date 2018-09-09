@@ -1,0 +1,94 @@
+512 words of input
+256 floats of input
+128x96 screen
+64x48 drawable with pixels
+(16*4)x(16*3) = 12*(16x16)
+
++-------+-------+-------+-------+
+|       |       |       |       |
+| 16x16 | 16x16 | 16x16 | 16x16 |
+|       |       |       |       |
++-------+-------+-------+-------+
+|       |       |       |       |
+| 16x16 | 16x16 | 16x16 | 16x16 |
+|       |       |       |       |
++-------+-------+-------+-------+
+|       |       |       |       |
+| 16x16 | 16x16 | 16x16 | 16x16 |
+|       |       |       |       |
++-------+-------+-------+-------+
+
+character:        (very limited palette)
+ _ _ _ _
+|_|#|_|_|
+|#|_|#|_|
+|#|_|#|_|
+|#|#|#|_|
+|#|_|#|_|
+|#|_|#|_|
+|#|_|#|_|
+|_|_|_|_|
+
+halved pixels:    (black and white only)
+ ___ ___
+|   |   |
+|___|___|
+|###|###|
+|###|###|
+|###|   |
+|###|___|
+|   |###|
+|___|###|
+
+quartered pixels: (supports colour)
+ _______
+|#######|
+|#######|
+|#######|
+|#######|
+|       |
+|       |
+|       |
+|_______|
+
+     load_text(text);
+     load_data(data1);
+     swap_buffers();
+     execute();
+     load_data(data2);
+     while (!idle())
+         cpu_sleep();
+     swap_buffers();
+     while (true) {
+         execute();
+         get_data(data1);
+         if (finished)
+             goto break1;
+         load_data(data2);
+         while (!idle())
+             cpu_sleep();
+         swap_buffers();
+
+         execute();
+         get_data(data2);
+         if (finished)
+             goto break2;
+         load_data(data1);
+         while (!idle())
+             cpu_sleep();
+         swap_buffers();
+     }
+ break1:
+     while (!idle())
+         cpu_sleep();
+     swap_buffers();
+     get_data(data2);
+     goto end;
+ break2:
+     while (!idle())
+         cpu_sleep();
+     swap_buffers();
+     get_data(data1);
+     goto end;
+end:
+     //done!

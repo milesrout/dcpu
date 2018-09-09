@@ -1,0 +1,107 @@
+0000 0000 0000 0000        - noop
+0000 0000 0000 0001        - wait
+0000 0000 0000 0010        - halt
+0000 0000 0000 0011        - fail
+0000 0xxx xxxx xxxx        - [other zero-arg operations]
+
+0000 1000 0000 aabb        - jc     @a,@b
+0000 1000 0001 aabb        - set    @a,@b
+0000 1000 0010 aabb        - swap   @a,@b
+0000 1000 oooo aabb        - [unassigned]
+
+0000 1001 0000 00aa        - zero   @a
+0000 1001 0000 01aa        - jmp    @a
+0000 1001 0000 10aa        - inc    @a
+0000 1001 0000 11aa        - dec    @a
+0000 1001 0001 00aa        - push   @a
+0000 1001 0001 01aa        - pop    @a
+0000 1001 0001 10aa        - peek   @a
+0000 1001 0001 11aa        - [unassigned]
+0000 1001 oooo ooaa        - [unassigned]
+
+0000 1010 00bb aaaa        - ld     %a,@b
+0000 1010 01bb aaaa        - st     @b,%a
+0000 1010 10bb aaaa        - [unassigned]
+0000 1010 11bb aaaa        - [unassigned]
+
+0000 1xxx xxxx xxxx        - [unassigned]
+
+0000 1111 bbbb bbbb        - jmp    $b
+
+0001 00aa bbbb bbbb        - loop   @a,$b
+0001 01aa bbbb bbbb        - jc     @a,$b
+0001 10aa bbbb bbbb        - set    @a,$b
+0001 11aa bbbb bbbb        - cmp    @a,$b
+
+0010 aaaa bbbb bbbb        - ld     %a,$b
+0011 aaaa bbbb bbbb        - st     $b,%a
+
+0100 0000 0000 aaaa        - sin    %a
+0100 0000 0001 aaaa        - cos    %a
+0100 0000 0010 aaaa        - tan    %a
+0100 0000 0011 aaaa        - asin   %a
+0100 0000 0100 aaaa        - acos   %a
+0100 0000 0101 aaaa        - atan   %a
+0100 0000 0110 aaaa        - sqrt   %a
+0100 0000 0111 aaaa        - rnd    %a
+0100 0000 1000 aaaa        - log10  %a
+0100 0000 1001 aaaa        - log2   %a
+0100 0000 1010 aaaa        - log    %a
+0100 0000 1011 aaaa        - [unassigned]
+0100 0000 1100 aaaa        - abs    %a
+0100 0000 1101 aaaa        - [unassigned]
+0100 0000 111o aaaa        - [unassigned]
+
+0100 0001 0000 aaaa        - ldz    %a
+0100 0001 0001 aaaa        - ld1    %a
+0100 0001 0010 aaaa        - ldpi   %a
+0100 0001 0011 aaaa        - lde    %a
+0100 0001 0100 aaaa        - ldsr2  %a
+0100 0001 0101 aaaa        - ldphi  %a
+0100 0001 011o aaaa        - [unassigned]
+0100 0001 1000 aaaa        - ldl2e  %a
+0100 0001 1001 aaaa        - ldl2x  %a
+0100 0001 1010 aaaa        - ldlg2  %a
+0100 0001 1011 aaaa        - ldln2  %a
+0100 0001 11oo aaaa        - [unassigned]
+
+0100 0010 xxxx xxxx        - [unassigned]
+0100 0011 xxxx xxxx        - [unassigned]
+0100 0100 xxxx xxxx        - [unassigned]
+0100 0101 xxxx xxxx        - [unassigned]
+0100 0110 xxxx xxxx        - [unassigned]
+0100 0111 xxxx xxxx        - [unassigned]
+
+0100 1000 bbbb aaaa        - mov    %a,%b
+0100 1001 bbbb aaaa        - xchg   %a,%b
+0100 1010 bbbb aaaa        - add    %a,%b
+0100 1011 bbbb aaaa        - mul    %a,%b
+0100 1100 bbbb aaaa        - sub    %a,%b
+0100 1101 bbbb aaaa        - rsub   %a,%b
+0100 1110 bbbb aaaa        - div    %a,%b
+0100 1111 bbbb aaaa        - rdiv   %a,%b
+
+0101 00cc bbbb aaaa        - lt     @c,%a,%b
+0101 01cc bbbb aaaa        - gt     @c,%a,%b
+0101 10cc bbbb aaaa        - eq     @c,%a,%b
+0101 11cc bbbb aaaa        - ne     @c,%a,%b
+
+0110 cccc bbbb aaaa        - atan   %a,%y,%x
+0111 cccc bbbb aaaa        - fma    %a,%b,%c
+
+1xxx xxxx 0xxx xxxx        - [unassigned]
+
+1aaa aaaa 1bbb bbbb        - [short-form]
+
+----
+
+0000 nullary, @,@ and @ ops
+0001 various @/$ ops
+0010 ld %,$
+0011 st %,$
+0100 %,% and % ops
+0101 comparisons
+0110 atan (two arg)
+0111 fma
+1xxx/0 [unassigned]
+1xxx/1 [short-form]

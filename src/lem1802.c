@@ -23,6 +23,7 @@ struct device_lem1802 {
 	u8  bordercol;
 	SDL_Window *window;
 	int last_render_cycles;
+	int use_16bit_colour;
 	struct farbfeld_data *ffdat;
 };
 
@@ -103,9 +104,14 @@ const u16 lem1802_default_font[256] = {
 	0x0077, 0x0000, 0x4136, 0x0800, 0x0201, 0x0201, 0x0205, 0x0200
 };
 
-const u16 lem1802_default_palette[] = {
+const u16 lem1802_default_12bit_palette[] = {
 	0x0000, 0x000a, 0x00a0, 0x00aa, 0x0a00, 0x0a0a, 0x0a50, 0x0aaa,
 	0x0555, 0x055f, 0x05f5, 0x05ff, 0x0f55, 0x0f5f, 0x0ff5, 0x0fff
+};
+
+const u16 lem1802_default_16bit_palette[] = {
+	0x0000, 0x0015, 0x0540, 0x0555, 0xa800, 0xa815, 0xad40, 0xad55,
+	0x52aa, 0x52bf, 0x57ea, 0x57ff, 0xfaaa, 0xfabf, 0xffea, 0xffff
 };
 
 struct farbfeld_pixel {
@@ -154,16 +160,21 @@ void lem1802_write(const char *filename, struct farbfeld_data *ffdat)
 	fclose(f);
 }
 
-#define EXTEND_TO_BYTE(x) ((((x) & 8) << 4) | (((x) & 8) << 3) | \
-	                   (((x) & 4) << 3) | (((x) & 4) << 2) | \
-	                   (((x) & 2) << 2) | (((x) & 2) << 1) | \
-	                   (((x) & 1) << 1) | (((x) & 1) << 0))
+#define EXTEND_4_TO_BYTE(x) ((((x) & 8) << 4) | (((x) & 8) << 3) | \
+	                     (((x) & 4) << 3) | (((x) & 4) << 2) | \
+	                     (((x) & 2) << 2) | (((x) & 2) << 1) | \
+	                     (((x) & 1) << 1) | (((x) & 1) << 0))
 
 #define PIXEL(i, j) pixels[(i) * LEM1802_FF_PIXWIDTH + (j)]
-#define COLOUR(x) (struct farbfeld_pixel){\
-	.r = EXTEND_TO_BYTE((palette[(x) & 0xf] >> 8) & 0xf),\
-	.g = EXTEND_TO_BYTE((palette[(x) & 0xf] >> 4) & 0xf),\
-	.b = EXTEND_TO_BYTE((palette[(x) & 0xf] >> 0) & 0xf)}
+#define COLOUR_16BIT(x) (struct farbfeld_pixel){\
+	.r = EXTEND_5_TO_BYTE((palette[(x) & 0xf] >> 8) & 0xf),\
+	.g = EXTEND_6_TO_BYTE((palette[(x) & 0xf] >> 4) & 0xf),\
+	.b = EXTEND_5_TO_BYTE((palette[(x) & 0xf] >> 0) & 0xf)}
+#define COLOUR_12BIT(x) (struct farbfeld_pixel){\
+	.r = EXTEND_4_TO_BYTE((palette[(x) & 0xf] >> 8) & 0xf),\
+	.g = EXTEND_4_TO_BYTE((palette[(x) & 0xf] >> 4) & 0xf),\
+	.b = EXTEND_4_TO_BYTE((palette[(x) & 0xf] >> 0) & 0xf)}
+#define COLOUR(x) COLOUR_12BIT(x)
 
 void lem1802_render(struct farbfeld_pixel pixels[], SDL_Window *window);
 
@@ -324,7 +335,10 @@ void lem1802_cycle(struct hardware *hw, u16 *dirty, struct dcpu *dcpu)
 		font = dcpu->ram + fontoff;
 
 	if (paletteoff == 0)
-		palette = lem1802_default_palette;
+		if (get_member_of(struct device_lem1802, hw->device, use_16bit_colour))
+			throw("use_16bit_colour", "unimplemented"); /* palette = lem1802_default_16bit_palette; */
+		else
+			palette = lem1802_default_12bit_palette;
 	else
 		palette = dcpu->ram + paletteoff;
 
@@ -395,9 +409,12 @@ struct device *make_lem1802(struct dcpu *dcpu)
 	char *data = emalloc(sizeof(struct device) + sizeof(struct device_lem1802));
 	struct device *device = (struct device *)data;
 	struct device_lem1802 *lem1802 = (struct device_lem1802*)(data + sizeof(struct device));
+	int use_16bit_colour;
 	u16 initial_vramoff;
+	
+	use_16bit_colour = dcpu->quirks & DCPU_QUIRKS_LEM1802_USE_16BIT_COLOUR;
 
-	if (dcpu->emulation_flags & DCPU_EC_TREAT_MONITOR_AS_SPECIAL_DEVICE) {
+	if (dcpu->quirks & DCPU_QUIRKS_LEM1802_ALWAYS_ON) {
 		initial_vramoff = 0x8000;
 	} else {
 		initial_vramoff = 0;
@@ -418,6 +435,7 @@ struct device *make_lem1802(struct dcpu *dcpu)
 		.window = NULL,
 		.last_render_cycles = 0,
 		.ffdat = NULL,
+		.use_16bit_colour = use_16bit_colour,
 	};
 
 	*device = (struct device){
