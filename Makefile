@@ -21,7 +21,7 @@ DEPS      := $(OBJS:%.o=%.d)
 
 INCS      := $(addprefix -I,$(shell find ./include -type d))
 
-CFLAGS    += $(PC_CFLAGS) $(INCS) -MMD -MP
+CFLAGS    += $(PC_CFLAGS) $(INCS) -MMD -MP -pedantic -pedantic-errors -std=c89
 LDLIBS    += $(PC_LIBS) -lm
 
 build/$(TARGET): $(OBJS)

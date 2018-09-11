@@ -1,6 +1,6 @@
 typedef struct {
 	const char *desc;
-	char        what[];
+	const char *what;
 } EXCEPT;
 extern jmp_buf except_buf;
 extern EXCEPT* except;

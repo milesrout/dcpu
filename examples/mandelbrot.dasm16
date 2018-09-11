@@ -155,17 +155,17 @@ sl2:    set x, i   ; x = 2 * ((i * 16) + j)
 	add x, x   ; <
 	set a, [data_storage_1 + x]
 	set b, [data_storage_1 + 1 + x]
-	set x, j    ; x = (i * 16) + j
+	set x, i    ; x = (i * 16) + j
 	mul x, 16   ; |
-	add x, i    ; v
+	add x, j    ; v
 	ifn a, 0
 	  set pc, panic
 	jsr stoi
-	mul c, 2
-	shr z, 1
-	add c, z
-	shl c, 8
-	add x, c
+	mul z, 4
+	add z, c
+	shl z, 8
+	;dat 0
+	add x, z
 	set [pixel_storage + x], a
 	add j, 1      ; doubly nested loop stuff
 	ifn j, 16     ; |
@@ -196,17 +196,26 @@ bwhite:	; initialise screen
 	set a, 0
 	set b, 0
 bwhite_loop:
-	set [data_storage_1 + 0], [values_across + 0 + a]
-	set [data_storage_1 + 1], [values_across + 1 + a]
-	set [data_storage_1 + 2], [values_across + 2 + a]
-	set [data_storage_1 + 3], [values_across + 3 + a]
-	set [data_storage_1 + 4], [values_down + 0 + b]
-	set [data_storage_1 + 5], [values_down + 1 + b]
-	set [data_storage_1 + 6], [values_down + 2 + b]
-	set [data_storage_1 + 7], [values_down + 3 + b]
-
 	; need to be able to restore these later
 	set push, a
+	set push, b
+
+	; for indexing 32-bit objects
+	mul a, 2
+	mul b, 2
+
+	set [data_storage_1 + 0], [values_down + 0 + b]
+	set [data_storage_1 + 1], [values_down + 1 + b]
+	set [data_storage_1 + 2], [values_across + 0 + a]
+	set [data_storage_1 + 3], [values_across + 1 + a]
+	set [data_storage_1 + 4], [values_down + 2 + b]
+	set [data_storage_1 + 5], [values_down + 3 + b]
+	set [data_storage_1 + 6], [values_across + 2 + a]
+	set [data_storage_1 + 7], [values_across + 3 + a]
+
+	; restore a and b
+	set b, pop
+	set a, peek
 	set push, b
 
 	; go process everything on the FPU
@@ -232,12 +241,12 @@ bwhite_loop:
 	set b, pop
 	set a, pop
 
-	add a, 2
-	ifn a, 8
+	add a, 1
+	ifn a, 4
 	  set pc, bwhite_loop
 	set a, 0
-	add b, 2
-	ifn b, 6
+	add b, 1
+	ifn b, 3
 	  set pc, bwhite_loop
 
 	set pc, spin
@@ -262,8 +271,8 @@ bw_data_to_pixels:
 bw_pixels_to_vram:
 	set c, a
 	set j, b
-	mul j, 2
-	mul c, 4
+	mul j, 4
+	mul c, 8
 	set i, 0
 bwhite_inner:
 	set b, i

@@ -1,7 +1,10 @@
-#define ecalloc(k, n) ({ void *q = calloc((k), (n)); if (q == NULL) { fprintf(stderr, "%s:%d: Could not zero-allocate %lu-array of %lu bytes\n", __FILE__, __LINE__, (size_t)(k), (size_t)(n)); abort(); } q; })
 #pragma GCC poison calloc
-#define emalloc(n)     ({ void *p = malloc(n); if (p == NULL) { fprintf(stderr, "%s:%d: Could not allocate %lu bytes\n", __FILE__, __LINE__, (size_t)(n)); abort(); } p; })
+void *ecalloc(const char *file, int line, size_t k, size_t n);
+#define ecalloc(k, n) ecalloc(__FILE__, __LINE__, (k), (n))
 #pragma GCC poison malloc
-#define erealloc(p, n) ({ void *q = realloc((p), (n)); if (q == NULL) { fprintf(stderr, "%s:%d: Could not reallocate %p to %lu bytes\n", __FILE__, __LINE__, (p), (size_t)(n)); abort(); } q; })
+void *emalloc(const char *file, int line, size_t n);
+#define emalloc(n) emalloc(__FILE__, __LINE__, (n))
 #pragma GCC poison realloc
+void *erealloc(const char *file, int line, void *p, size_t n);
+#define erealloc(p, n) erealloc(__FILE__, __LINE__, (p), (n))
 #define get_member_of(t1, value, member) (((t1*)((value)->data))->member)

@@ -18,7 +18,14 @@
 #include "lem1802.h"
 #include "dfpu17.h"
 
-#define DIRTY(x) ({ u16 *_dirty_p = emalloc(sizeof *_dirty_p); *_dirty_p = (x); _dirty_p; })
+const struct dcpu dcpu_init = {0};
+
+u16 *DIRTY(u16 d)
+{
+	u16 *p = emalloc(sizeof *p);
+	*p = d;
+	return p;
+}
 
 void noop_interrupt(struct hardware *hw, struct dcpu *dcpu)
 {
@@ -133,9 +140,9 @@ static u16 interrupt(struct dcpu *dcpu, u16 message)
 static u16 *instr_cycle(struct dcpu *dcpu)
 {
 	u16 instruction = dcpu->ram[dcpu->pc++];
-	u16 opcode = instruction & 0b11111;
-	u16 enc_b = (instruction & 0b1111100000) >> 5;
-	u16 enc_a = (instruction & 0b1111110000000000) >> 10;
+	u16 opcode = instruction & 0x001f;
+	u16 enc_b = (instruction & 0x03e0) >> 5;
+	u16 enc_a = (instruction & 0xfc00) >> 10;
 	u16 *dirty = NULL;
 
 	/*
@@ -479,14 +486,21 @@ int main()
 
 	dcpu.hw[1].device = make_dfpu17(&dcpu);
 
-	dcpu.hw[2].device = emalloc(sizeof(struct device));
-	*dcpu.hw[2].device = DEVICE_INIT(0x30cf7406, 0x0001, 0x90099009);
-
-	dcpu.hw[3].device = emalloc(sizeof(struct device));
-	*dcpu.hw[3].device = DEVICE_INIT(0x12d0b402, 0x0001, 0x90099009);
-
-	dcpu.hw[4].device = emalloc(sizeof(struct device));
-	*dcpu.hw[4].device = DEVICE_INIT(0x74fa4cae, 0x07c2, 0x21544948);
+	{
+		struct device d = {0x30cf7406, 0x0001, 0x90099009, NULL, &noop_interrupt, &noop_cycle};
+		dcpu.hw[2].device = emalloc(sizeof(struct device));
+		*dcpu.hw[2].device = d;
+	}
+	{
+		struct device d = {0x12d0b402, 0x0001, 0x90099009, NULL, &noop_interrupt, &noop_cycle};
+		dcpu.hw[3].device = emalloc(sizeof(struct device));
+		*dcpu.hw[3].device = d;
+	}
+	{
+		struct device d = {0x74fa4cae, 0x07c2, 0x21544948, NULL, &noop_interrupt, &noop_cycle};
+		dcpu.hw[4].device = emalloc(sizeof(struct device));
+		*dcpu.hw[4].device = d;
+	}
 
 	clock_gettime(CLOCK_MONOTONIC, &last_start);
 	timeslice_start = last_start;

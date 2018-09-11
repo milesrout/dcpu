@@ -11,8 +11,8 @@ EXCEPT *except;
 
 void throw(const char *desc, const char *what)
 {
-    except = malloc(strlen(what) + 1 + (sizeof *except));
+    except = malloc(sizeof except);
     except->desc = desc;
-    strcpy(except->what, what);
+    except->what = what;
     longjmp(except_buf, true);
 }

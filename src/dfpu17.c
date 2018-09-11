@@ -33,28 +33,28 @@ struct device_dfpu17 {
 	u8  fcsp;
 	u8  pc;
 
-	union {
-		struct {
+	union device_dfpu17_memory {
+		struct device_dfpu17_memory_u16 {
 			u16 registers[16];
 			u16 data0[512];
 			u16 data1[512];
 		} word;
-		struct {
+		struct device_dfpu17_memory_f16 {
 			f16 registers[16];
 			f16 data0[256]; /* unfortunate */
 			f16 data1[256];
 		} half;
-		struct {
+		struct device_dfpu17_memory_f32 {
 			f32 registers[8];
 			f32 data0[256];
 			f32 data1[256];
 		} sngl;
-		struct {
+		struct device_dfpu17_memory_f64 {
 			f64 registers[4];
 			f64 data0[128];
 			f64 data1[128];
 		} dble;
-	};
+	} mem;
 
 	u16 text[256];
 };
@@ -68,40 +68,40 @@ enum dfpu17_command {
 	GET_DATA,
 	EXECUTE,
 	SWAP_BUFFERS,
-	SET_INTERRUPT_MESSAGE,
+	SET_INTERRUPT_MESSAGE
 };
 
 enum dfpu17_mode {
 	MODE_OFF,
 	MODE_INT,
-	MODE_POLL,
+	MODE_POLL
 };
 
 enum dfpu17_prec {
 	PREC_SINGLE,
 	PREC_DOUBLE,
-	PREC_HALF,
+	PREC_HALF
 };
 
 enum dfpu17_status {
 	STATUS_OFF,
 	STATUS_IDLE,
 	STATUS_RUNNING,
-	STATUS_WAITING,
+	STATUS_WAITING
 };
 
 enum dfpu17_loadstatus {
 	LOADSTATUS_NONE,
 	LOADSTATUS_LOADING_TEXT,
 	LOADSTATUS_LOADING_DATA,
-	LOADSTATUS_STORING_DATA,
+	LOADSTATUS_STORING_DATA
 };
 
 enum dfpu17_error {
 	ERROR_NONE,
 	ERROR_FAIL,     /* an error set by the `fail' instruction */
 	ERROR_INVALID,  /* invalid instruction */
-	ERROR_FPEXCEPT, /* floating-point exception */
+	ERROR_FPEXCEPT  /* floating-point exception */
 };
 
 void dfpu17_enqueue_interrupt(struct dcpu *dcpu)
@@ -116,14 +116,14 @@ void dfpu17_swap_buffers(struct device *device)
 	u16 temporary[512];
 
 	memcpy(temporary,
-	       dfpu17_get(device, word.data0),
+	       dfpu17_get(device, mem.word.data0),
 	       512 * sizeof(u16));
 
-	memcpy(dfpu17_get(device, word.data0),
-	       dfpu17_get(device, word.data1),
+	memcpy(dfpu17_get(device, mem.word.data0),
+	       dfpu17_get(device, mem.word.data1),
 	       512 * sizeof(u16));
 
-	memcpy(dfpu17_get(device, word.data1),
+	memcpy(dfpu17_get(device, mem.word.data1),
 	       temporary,
 	       512 * sizeof(u16));
 }
@@ -144,7 +144,7 @@ void invalid_precision(u16 x) {
 	abort();
 }
 
-#define SWAP(x,y) ({ __typeof(x) _tmp = x; x = y; y = _tmp; })
+#define SWAP(x,y) do { __typeof(x) _tmp = x; x = y; y = _tmp; } while (0)
 #define IREG  dfpu17_get(hw->device, fcreg)
 #define ISTACK dfpu17_get(hw->device, fcstack)
 #define ISP   dfpu17_get(hw->device, fcsp)
@@ -153,36 +153,42 @@ void invalid_precision(u16 x) {
 #define COUNT dfpu17_get(hw->device, loadcount)
 #define PTR   dfpu17_get(hw->device, loadptr)
 #define TEXT  dfpu17_get(hw->device, text)
-#define DATA  dfpu17_get(hw->device, word.data1)
-#define HREG  dfpu17_get(hw->device, half).registers
-#define SREG  dfpu17_get(hw->device, sngl).registers
-#define DREG  dfpu17_get(hw->device, dble).registers
-#define HMEM  dfpu17_get(hw->device, half).data0
-#define SMEM  dfpu17_get(hw->device, sngl).data0
-#define DMEM  dfpu17_get(hw->device, dble).data0
+#define DATA  dfpu17_get(hw->device, mem.word.data1)
+#define HREG  dfpu17_get(hw->device, mem.half.registers)
+#define SREG  dfpu17_get(hw->device, mem.sngl.registers)
+#define DREG  dfpu17_get(hw->device, mem.dble.registers)
+#define HMEM  dfpu17_get(hw->device, mem.half.data0)
+#define SMEM  dfpu17_get(hw->device, mem.sngl.data0)
+#define DMEM  dfpu17_get(hw->device, mem.dble.data0)
 #define BINOP(O,R,S) do {\
 	if (PREC == PREC_HALF) {\
-		f16 r = HREG[R]; (void)r;\
-		f16 s = HREG[S]; (void)s;\
+		f16 r = HREG[R];\
+		f16 s = HREG[S];\
+		(void)r; (void)s;\
 		HREG[R] = O;\
 	} else if (PREC == PREC_SINGLE) {\
-		f32 r = SREG[R]; (void)r;\
-		f32 s = SREG[S]; (void)s;\
+		f32 r = SREG[R];\
+		f32 s = SREG[S];\
+		(void)r; (void)s;\
 		SREG[R] = O;\
 	} else {\
-		f64 r = DREG[R]; (void)r;\
-		f64 s = DREG[S]; (void)s;\
+		f64 r = DREG[R];\
+		f64 s = DREG[S];\
+		(void)r; (void)s;\
 		DREG[R] = O;\
 	} } while (0)
 #define UNARYOP(O,A) do {\
 	if (PREC == PREC_HALF) {\
-		f16 a = HREG[A]; (void)a;\
+		f16 a = HREG[A];\
+		(void)a;\
 		HREG[A] = O;\
 	} else if (PREC == PREC_SINGLE) {\
-		f32 a = SREG[A]; (void)a;\
+		f32 a = SREG[A];\
+		(void)a;\
 		SREG[A] = O;\
 	} else {\
-		f64 a = DREG[A]; (void)a;\
+		f64 a = DREG[A];\
+		(void)a;\
 		DREG[A] = O;\
 	} } while (0)
 #define CMP(O,A,B) (!((PREC == PREC_HALF) ? (HREG[A] O HREG[B]) \
@@ -799,33 +805,39 @@ struct device *make_dfpu17(struct dcpu *dcpu)
 	struct device *device = (struct device *)data;
 	struct device_dfpu17 *dfpu17 = (struct device_dfpu17 *)(data + sizeof(struct device));
 
+	struct device_dfpu17 d17 = {
+		MODE_OFF,
+		PREC_SINGLE,
+		STATUS_OFF,
+		ERROR_NONE,
+		0x0000,
+		LOADSTATUS_NONE,
+		0x0000,
+		0x0000,
+		{0x00, 0x00, 0x00, 0x00},
+		{0x00, 0x00, 0x00, 0x00},
+		0x00,
+		0x00,
+		{0},
+		{0},
+	};
+
+	struct device d = {
+		0x1de171f3,
+		0x0001,
+		0x5307537,
+		NULL,
+		&dfpu17_interrupt,
+		&dfpu17_cycle,
+	};
+
+	d.data = dfpu17;
+
+	*dfpu17 = d17;
+	*device = d;
+
 	/* don't need to use this */
 	(void)dcpu;
-
-	*dfpu17 = (struct device_dfpu17){
-		.mode=MODE_OFF,
-		.prec=PREC_SINGLE,
-		.status=STATUS_OFF,
-		.error=ERROR_NONE,
-		.intrmsg=0x0000,
-		.loadstatus=LOADSTATUS_NONE,
-		.loadptr=0x0000,
-		.loadcount=0x0000,
-		.fcreg={0x00, 0x00, 0x00, 0x00},
-		.fcstack={0x00, 0x00, 0x00, 0x00},
-		.fcsp=0,
-		.word={.registers={0}, .data0={0}, .data1={0}},
-		.text={0},
-	};
-
-	*device = (struct device){
-		.id=0x1de171f3,
-		.version=0x0001,
-		.manufacturer=0x5307537,
-		.interrupt=&dfpu17_interrupt,
-		.cycle=&dfpu17_cycle,
-		.data=dfpu17,
-	};
 
 	return device;
 }

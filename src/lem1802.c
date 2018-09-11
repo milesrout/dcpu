@@ -31,7 +31,7 @@ enum lem1802_command {
 	MEM_MAP_SCREEN,
 	MEM_MAP_FONT,
 	MEM_MAP_PALETTE,
-	SET_BORDER_COLOUR,
+	SET_BORDER_COLOUR
 };
 
 const u16 lem1802_zardoz_font[256] = {
@@ -119,10 +119,9 @@ struct farbfeld_pixel {
 };
 
 struct farbfeld_data {
-	u64 magic;
 	u32 width;
 	u32 height;
-	struct farbfeld_pixel pixels[];
+	struct farbfeld_pixel pixels[1];
 };
 
 #define LEM1802_FF_CELLWIDTH 4
@@ -134,8 +133,14 @@ struct farbfeld_data {
 #define LEM1802_FF_PIXHEIGHT (LEM1802_FF_CELLHEIGHT * LEM1802_FF_ROWS + 2 * LEM1802_FF_BORDERWIDTH)
 #define LEM1802_FF_PIXSIZE (sizeof(struct farbfeld_pixel) * LEM1802_FF_PIXWIDTH * LEM1802_FF_PIXHEIGHT)
 #define LEM1802_FF_SIZE (sizeof(struct farbfeld_data) + LEM1802_FF_PIXSIZE)
-#define LEM1802_FF_INIT (struct farbfeld_data){ .width=LEM1802_FF_PIXWIDTH, .height=LEM1802_FF_PIXHEIGHT }
 #define LEM1802_SCALE_FACTOR 4
+
+static const struct farbfeld_data lem1802_ff_init = {
+	LEM1802_FF_PIXWIDTH,
+	LEM1802_FF_PIXHEIGHT
+};
+
+#define LEM1802_FF_INIT (lem1802_ff_init)
 
 void lem1802_write(const char *filename, struct farbfeld_data *ffdat)
 {
@@ -160,25 +165,41 @@ void lem1802_write(const char *filename, struct farbfeld_data *ffdat)
 	fclose(f);
 }
 
-#define EXTEND_4_TO_BYTE(x) ((((x) & 8) << 4) | (((x) & 8) << 3) | \
-	                     (((x) & 4) << 3) | (((x) & 4) << 2) | \
-	                     (((x) & 2) << 2) | (((x) & 2) << 1) | \
-	                     (((x) & 1) << 1) | (((x) & 1) << 0))
+#define EXTEND_4_TO_BYTE(x) (((x) << 4) | (x))
+#define EXTEND_5_TO_BYTE(x) (((x) << 3) | ((x) >> 2))
+#define EXTEND_6_TO_BYTE(x) (((x) << 2) | ((x) >> 4))
 
 #define PIXEL(i, j) pixels[(i) * LEM1802_FF_PIXWIDTH + (j)]
-#define COLOUR_16BIT(x) (struct farbfeld_pixel){\
-	.r = EXTEND_5_TO_BYTE((palette[(x) & 0xf] >> 8) & 0xf),\
-	.g = EXTEND_6_TO_BYTE((palette[(x) & 0xf] >> 4) & 0xf),\
-	.b = EXTEND_5_TO_BYTE((palette[(x) & 0xf] >> 0) & 0xf)}
-#define COLOUR_12BIT(x) (struct farbfeld_pixel){\
-	.r = EXTEND_4_TO_BYTE((palette[(x) & 0xf] >> 8) & 0xf),\
-	.g = EXTEND_4_TO_BYTE((palette[(x) & 0xf] >> 4) & 0xf),\
-	.b = EXTEND_4_TO_BYTE((palette[(x) & 0xf] >> 0) & 0xf)}
-#define COLOUR(x) COLOUR_12BIT(x)
 
-void lem1802_render(struct farbfeld_pixel pixels[], SDL_Window *window);
+static struct farbfeld_pixel colour_16bit(const u16 *palette, u16 x)
+{
+	struct farbfeld_pixel p;
 
-void lem1802_draw_char(struct farbfeld_pixel pixels[], int i, int j, u16 vram, const u16 font[256], const u16 palette[16], int cycle)
+	p.r = EXTEND_5_TO_BYTE((palette[(x) & 0xf] >> 11) & 0xf);
+	p.g = EXTEND_6_TO_BYTE((palette[(x) & 0xf] >> 5) & 0xf);
+	p.b = EXTEND_5_TO_BYTE((palette[(x) & 0xf] >> 0) & 0xf);
+
+	return p;
+}
+
+static struct farbfeld_pixel colour_12bit(const u16 *palette, u16 x)
+{
+	struct farbfeld_pixel p;
+
+	p.r = EXTEND_4_TO_BYTE((palette[(x) & 0xf] >> 8) & 0xf);
+	p.g = EXTEND_4_TO_BYTE((palette[(x) & 0xf] >> 4) & 0xf);
+	p.b = EXTEND_4_TO_BYTE((palette[(x) & 0xf] >> 0) & 0xf);
+
+	return p;
+}
+
+#define COLOUR(x) (get_member_of(struct device_lem1802, hw->device, use_16bit_colour) \
+		    ? colour_16bit(palette, (x)) \
+		    : colour_12bit(palette, (x)))
+
+void lem1802_render(struct farbfeld_pixel *pixels, SDL_Window *window);
+
+void lem1802_draw_char(struct hardware *hw, struct farbfeld_pixel *pixels, int i, int j, u16 vram, const u16 font[256], const u16 palette[16], int cycle)
 { 
 	int x, y;
 	u8 bg = (vram >> 8) & 0xf;
@@ -202,7 +223,7 @@ void lem1802_draw_char(struct farbfeld_pixel pixels[], int i, int j, u16 vram, c
 	}
 }
 
-void lem1802_draw(struct farbfeld_pixel pixels[], const u16 vram[386], const u16 font[256], const u16 palette[16], u8 bordercol, int cycle)
+void lem1802_draw(struct hardware *hw, struct farbfeld_pixel *pixels, const u16 vram[386], const u16 font[256], const u16 palette[16], u8 bordercol, int cycle)
 {
 	int i, j, k;
 
@@ -222,7 +243,7 @@ void lem1802_draw(struct farbfeld_pixel pixels[], const u16 vram[386], const u16
 
 	for (i = 0; i < LEM1802_FF_ROWS; i++) {
 		for (j = 0; j < LEM1802_FF_COLS; j++) {
-			lem1802_draw_char(pixels, i, j, vram[i * LEM1802_FF_COLS + j], font, palette, cycle);
+			lem1802_draw_char(hw, pixels, i, j, vram[i * LEM1802_FF_COLS + j], font, palette, cycle);
 		}
 	}
 }
@@ -254,7 +275,7 @@ void hex_dump(char *data, size_t length)
 	printf("  %s\n", buf);
 }
 
-void lem1802_render(struct farbfeld_pixel pixels[], SDL_Window *window)
+void lem1802_render(struct farbfeld_pixel *pixels, SDL_Window *window)
 {
 	SDL_Surface *surface, *window_surface;
 
@@ -366,12 +387,12 @@ void lem1802_cycle(struct hardware *hw, u16 *dirty, struct dcpu *dcpu)
 	
 	if (is_dirty) {
 		/* the whole screen needs to be redrawn */
-		lem1802_draw((*ffdat)->pixels, vram, font, palette, bordercol, is_cycle);
+		lem1802_draw(hw, (*ffdat)->pixels, vram, font, palette, bordercol, is_cycle);
 	} else if (dirty != NULL && vramoff <= *dirty && *dirty < vramoff + 384) {
 		/* just this one cell needs to be redrawn */
 		int i = (*dirty - vramoff) / LEM1802_FF_COLS;
 		int j = (*dirty - vramoff) % LEM1802_FF_COLS;
-		lem1802_draw_char((*ffdat)->pixels, i, j, vram[i * LEM1802_FF_COLS + j], font, palette, is_cycle);
+		lem1802_draw_char(hw, (*ffdat)->pixels, i, j, vram[i * LEM1802_FF_COLS + j], font, palette, is_cycle);
 	}
 
 	if (dcpu->cycles - *last_render_cycles > REFRESHRATE) {
@@ -427,25 +448,27 @@ struct device *make_lem1802(struct dcpu *dcpu)
 		abort();
 	}
 
-	*lem1802 = (struct device_lem1802){
-		.vramoff = initial_vramoff,
-		.fontoff = 0,
-		.paletteoff = 0,
-		.bordercol = 0,
-		.window = NULL,
-		.last_render_cycles = 0,
-		.ffdat = NULL,
-		.use_16bit_colour = use_16bit_colour,
-	};
+	{
+		struct device_lem1802 d = {0};
+		d.vramoff = initial_vramoff;
+		d.use_16bit_colour = use_16bit_colour;
 
-	*device = (struct device){
-		.id=0x7349f615,
-		.version=0x1802,
-		.manufacturer=0x1c6c8b36,
-		.interrupt=&lem1802_interrupt,
-		.cycle=&lem1802_cycle,
-		.data=lem1802
-	};
+		*lem1802 = d;
+	}
+
+	{
+		struct device d = {
+			0x7349f615,
+			0x1802,
+			0x1c6c8b36,
+			NULL,
+			&lem1802_interrupt,
+			&lem1802_cycle,
+		};
+		d.data = lem1802;
+
+		*device = d;
+	}
 
 	return device;
 }

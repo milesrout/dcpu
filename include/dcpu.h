@@ -8,8 +8,6 @@ struct device {
 	void (*interrupt)(struct hardware *hardware, struct dcpu *dcpu);
 	void (*cycle)(struct hardware *hardware, u16 *dirty, struct dcpu *dcpu);
 };
-#define DEVICE_INIT(i, ver, man) (struct device){.id=(i), .version=(ver),\
-	.manufacturer=(man), .interrupt=&noop_interrupt, .cycle=&noop_cycle}
 /**
  * represents a connection from a hardware device to a dcpu.
  * multiple dcpus may be connected to the same hardware device, in which case
@@ -22,7 +20,7 @@ struct hardware {
 };
 enum dcpu_quirks {
 	DCPU_QUIRKS_LEM1802_ALWAYS_ON = 1,
-	DCPU_QUIRKS_LEM1802_USE_16BIT_COLOUR = 2,
+	DCPU_QUIRKS_LEM1802_USE_16BIT_COLOUR = 2
 };
 struct dcpu {
 	u16 registers[8];
@@ -35,6 +33,6 @@ struct dcpu {
 	struct hardware *hw;
 	int quirks;
 };
-#define DCPU_INIT {.registers={0}, .ram={0}, .pc=0, .sp=0, .ex=0, .ia=0,\
-	           .skipping=0, .cycles=0, .queue_interrupts=0,\
-	           .hw_count=0, .hw=NULL, .quirks=0}
+extern const struct dcpu dcpu_init;
+extern const struct device device_init;
+#define DCPU_INIT dcpu_init
