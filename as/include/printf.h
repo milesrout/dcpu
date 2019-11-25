@@ -1,3 +1,4 @@
-void evfprintf(FILE *file, const char *fmt, va_list args);
-void efprintf(FILE *file, const char *fmt, ...);
-void eprintf(const char *fmt, ...);
+#include "_printf.h"
+#pragma GCC poison vfprintf
+#pragma GCC poison fprintf
+#pragma GCC poison printf
