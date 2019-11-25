@@ -1,12 +1,10 @@
-#include <assert.h>
+#include <stdarg.h>
 #include <stdio.h>
+#include "printf.h"
 
 int main()
 {
-	int err;
-
-	err = fprintf(stdout, "Hello, world!\n");
-	assert(err >= 0);
+	efprintf(stdout, "Hello, world!\n");
 
 	return 0;
 }
