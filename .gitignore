@@ -7,3 +7,5 @@ a.out
 build/
 __pycache__/
 *.pyc
+asm/tags
+vm/tags
