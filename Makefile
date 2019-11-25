@@ -32,6 +32,11 @@ build/%.c.o: %.c
 	$(CC) -c $(CFLAGS) $< -o $@
 	@$(RM) *.d
 
+tags:
+	gcc -M $(INCS) $(PC_CFLAGS) $(SRCS) | sed -e 's/[\ ]/\n/g' | \
+		sed -e '/^$$/d' -e '/\.o:[ \t]*$$/d' | \
+		ctags -L - $(CTAGS_FLAGS)
+
 %.bin: %.dasm16
 	dtasm --binary $< -o $@
 
